@@ -21,6 +21,7 @@ headers = files(
     [
         'include/cefast/cefast.hpp',
         'include/cefast/data/records.hpp',
+        'include/cefast/data/structural.hpp',
         'include/cefast/errors.hpp',
         'include/cefast/header/attributes.hpp',
         'include/cefast/header/lexer.hpp',

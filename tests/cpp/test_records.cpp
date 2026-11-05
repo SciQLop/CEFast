@@ -38,6 +38,21 @@ constexpr std::string_view one_float = R"(START_VARIABLE = v
   VALUE_TYPE = FLOAT
 END_VARIABLE = v)";
 
+constexpr std::string_view two_chars = R"(START_VARIABLE = c
+  VALUE_TYPE = CHAR
+  SIZES = 2
+END_VARIABLE = c)";
+
+constexpr std::string_view three_chars = R"(START_VARIABLE = c
+  VALUE_TYPE = CHAR
+  SIZES = 3
+END_VARIABLE = c)";
+
+[[nodiscard]] const std::vector<std::string>& strings_of(const cefast::variable& var)
+{
+    return std::get<std::vector<std::string>>(var.values);
+}
+
 std::string time_and_float(std::string_view sizes = "3")
 {
     std::string text { R"(START_VARIABLE = time_tags
@@ -78,6 +93,32 @@ TEST_CASE("records: dollar marker with trailing space", "[records]")
         = std::get<cpp_utils::containers::no_init_vector<float>>(result.file.variables[1].values);
     REQUIRE(values.size() == 6);
     CHECK(values[5] == 6.0f);
+}
+
+TEST_CASE("records: stop bytes at awkward offsets", "[records]")
+{
+    // Stops packed around the 64-byte boundary: ',' at 62, '"' at 63, value text at 64, '"' at 65,
+    // then a second record whose '$' sits at 63 and whose comment '!' starts at 64.
+    const std::string padding(60, 'a');
+    const auto quoted = load(header("\"$\"", three_chars) + "\"" + padding
+        + "\",\"x\",\"b\" $\n\"c\",\"y\",\"d\" $\nEND_DATA\n");
+    REQUIRE(quoted.file.variables.size() == 1);
+    CHECK(quoted.file.variables[0].records == 2);
+    const auto& quoted_values = strings_of(quoted.file.variables[0]);
+    REQUIRE(quoted_values.size() == 6);
+    CHECK(quoted_values[0] == padding);
+    CHECK(quoted_values[1] == "x");
+    CHECK(quoted_values[2] == "b");
+    CHECK(quoted_values[5] == "d");
+
+    const std::string text(61, 'a');
+    const auto commented
+        = load(header("\"$\"", two_chars) + text + ",b$!comment\nc,d$\nEND_DATA\n");
+    CHECK(commented.file.variables[0].records == 2);
+    const auto& commented_values = strings_of(commented.file.variables[0]);
+    REQUIRE(commented_values.size() == 4);
+    CHECK(commented_values[0] == text);
+    CHECK(commented_values[3] == "d");
 }
 
 TEST_CASE("records: a multi-character marker still ends records", "[records]")

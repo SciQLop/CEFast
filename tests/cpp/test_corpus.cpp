@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cefast/cefast.hpp>
+#include <cefast/data/structural.hpp>
 #include <cefast/gzip.hpp>
 
 #include <algorithm>
@@ -278,5 +279,42 @@ TEST_CASE("corpus: a gzipped file loads exactly like its plain version")
         REQUIRE(left.entries.size() == right.entries.size());
         for (std::size_t entry = 0; entry < left.entries.size(); ++entry)
             require_same_scalar(left.entries[entry], right.entries[entry]);
+    }
+}
+
+namespace
+{
+// Runs the parser with the byte-by-byte traversal, then puts the default back even when an
+// assertion throws.
+struct byte_by_byte_scan
+{
+    byte_by_byte_scan() { cefast::detail::scan_one_byte_at_a_time() = true; }
+    ~byte_by_byte_scan() { cefast::detail::scan_one_byte_at_a_time() = false; }
+    byte_by_byte_scan(const byte_by_byte_scan&) = delete;
+    byte_by_byte_scan& operator=(const byte_by_byte_scan&) = delete;
+};
+}
+
+TEST_CASE("corpus: the stop-skipping scan matches the byte-by-byte scan", "[corpus]")
+{
+    for (const auto& path : corpus_files())
+    {
+        INFO(path.filename().string());
+        const auto skipped = cefast::load(path);
+        cefast::cef_file walked;
+        {
+            const byte_by_byte_scan guard;
+            walked = cefast::load(path);
+        }
+        REQUIRE(skipped.variables.size() == walked.variables.size());
+        for (std::size_t index = 0; index < skipped.variables.size(); ++index)
+        {
+            INFO(skipped.variables[index].name);
+            const auto& left = skipped.variables[index];
+            const auto& right = walked.variables[index];
+            REQUIRE(left.name == right.name);
+            REQUIRE(left.records == right.records);
+            require_same_column(left, right);
+        }
     }
 }

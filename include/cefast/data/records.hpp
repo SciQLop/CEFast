@@ -5,6 +5,7 @@
 #include <variant>
 #include <vector>
 
+#include <cefast/data/structural.hpp>
 #include <cefast/errors.hpp>
 #include <cefast/header/lexer.hpp>
 #include <cefast/header/parser.hpp>
@@ -122,6 +123,7 @@ namespace detail
                 , marker { result.record_marker }
                 , marker_char { result.record_marker.empty() ? '\0' : result.record_marker.front() }
                 , single_marker { result.record_marker.size() == 1 }
+                , byte_by_byte { result.record_marker.size() != 1 }
         {
             for (auto& var : result.file.variables)
             {
@@ -144,6 +146,19 @@ namespace detail
             std::size_t token_start = 0;
             while (position < data.size())
             {
+                const std::size_t stop
+                    = next_stop(data, position, single_marker ? marker_char : '\0', byte_by_byte);
+                if (stop > position)
+                {
+                    if (state == scan_state::after_value)
+                        throw parse_error(source, line, "missing separator", records + 1);
+                    if (state == scan_state::at_value_start)
+                        token_start = position;
+                    state = scan_state::in_unquoted;
+                    position = stop;
+                    if (position == data.size())
+                        break;
+                }
                 const char c = data[position];
                 if (c == '"')
                 {
@@ -265,6 +280,7 @@ namespace detail
         std::string_view marker;
         char marker_char;
         bool single_marker;
+        bool byte_by_byte;
         std::vector<variable*> varying;
         std::vector<slot> slots;
         std::size_t index = 0;

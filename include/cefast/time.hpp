@@ -39,6 +39,10 @@ namespace detail
     // int64 nanoseconds cover +/-9223372036 seconds; date-invalid values are rejected before this.
     constexpr std::int64_t max_seconds = 9'223'372'036;
     constexpr std::int64_t nanoseconds_per_second = 1'000'000'000;
+    // The first and last representable instants are not whole seconds, so the seconds boundary
+    // alone would let a fraction overflow int64.
+    constexpr std::int64_t max_seconds_fraction
+        = std::numeric_limits<std::int64_t>::max() % nanoseconds_per_second;
 }
 
 [[nodiscard]] inline std::optional<std::int64_t> parse_iso_time(std::string_view text) noexcept
@@ -85,11 +89,14 @@ namespace detail
     if (position + 1 != text.size() || (text[position] != 'Z' && text[position] != 'z'))
         return std::nullopt;
 
-    // A leap second (:60) simply rolls into the next minute, as numpy's datetime64 does.
+    // Leap seconds are ignored, as in numpy's datetime64: a :60 second rolls over into the next
+    // minute by plain arithmetic.
     const std::int64_t seconds_since_epoch
         = duration_cast<seconds>(sys_days { date }.time_since_epoch()).count() + hour * 3600
         + minute * 60 + second;
     if (seconds_since_epoch > detail::max_seconds || seconds_since_epoch < -detail::max_seconds)
+        return std::nullopt;
+    if (seconds_since_epoch == detail::max_seconds && fraction > detail::max_seconds_fraction)
         return std::nullopt;
     return seconds_since_epoch * detail::nanoseconds_per_second + fraction;
 }

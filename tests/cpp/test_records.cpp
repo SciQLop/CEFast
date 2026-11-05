@@ -67,6 +67,17 @@ START_VARIABLE = v
 }
 }
 
+TEST_CASE("records: leading plus on a float record", "[records]")
+{
+    const auto result = load(header("", one_float) + "+1.5\n-2.5\nEND_DATA\n");
+    REQUIRE(result.file.variables.size() == 1);
+    const auto& values
+        = std::get<cpp_utils::containers::no_init_vector<float>>(result.file.variables[0].values);
+    REQUIRE(values.size() == 2);
+    CHECK(values[0] == 1.5f);
+    CHECK(values[1] == -2.5f);
+}
+
 TEST_CASE("records: newline marker", "[records]")
 {
     const auto result = load(header("", one_float) + "1.5\n2.5\n3.5\nEND_DATA\n");

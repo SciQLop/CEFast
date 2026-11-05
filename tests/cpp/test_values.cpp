@@ -83,6 +83,27 @@ TEST_CASE("values: INT accepts leading zero and plus", "[values]")
     CHECK(ints[1] == 7);
 }
 
+TEST_CASE("values: FLOAT and DOUBLE accept a leading plus", "[values]")
+{
+    column floats = make_column(value_type::FLOAT);
+    for (const auto* token : { "+1.5", "+1", "+1e3", "+0.00239" })
+    {
+        INFO(token);
+        REQUIRE(append_value(floats, value_type::FLOAT, token, ""));
+    }
+    const auto& parsed_floats = std::get<cpp_utils::containers::no_init_vector<float>>(floats);
+    REQUIRE(parsed_floats.size() == 4);
+    CHECK(parsed_floats[0] == 1.5f);
+    CHECK(parsed_floats[1] == 1.0f);
+    CHECK(parsed_floats[2] == 1000.0f);
+    CHECK(parsed_floats[3] == 0.00239f);
+
+    column doubles = make_column(value_type::DOUBLE);
+    REQUIRE(append_value(doubles, value_type::DOUBLE, "+1.2345678901234567", ""));
+    CHECK(std::get<cpp_utils::containers::no_init_vector<double>>(doubles)[0]
+        == 1.2345678901234567);
+}
+
 TEST_CASE("values: INT rejects garbage", "[values]")
 {
     column values = make_column(value_type::INT);
@@ -195,7 +216,8 @@ void require_same_parse(std::string_view text)
 {
     T shortcut = 0;
     T reference = 0;
-    const auto result = fast_float::from_chars(text.data(), text.data() + text.size(), reference);
+    const auto result
+        = fast_float::from_chars(text.data(), text.data() + text.size(), reference, detail::float_format);
     const bool reference_ok = result.ec == std::errc { } && result.ptr == text.data() + text.size();
     INFO(text);
     REQUIRE(detail::parse_float(text, shortcut) == reference_ok);

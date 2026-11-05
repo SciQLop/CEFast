@@ -43,13 +43,18 @@ namespace detail
         return true;
     }
 
+    // CEF writes signed samples, and INT already takes the '+' int32 spelling, so the floating
+    // types must too: fast_float only accepts it when asked.
+    constexpr fast_float::chars_format float_format
+        = fast_float::chars_format::general | fast_float::chars_format::allow_leading_plus;
+
     template <typename T>
     [[nodiscard]] inline bool parse_float(std::string_view token, T& value) noexcept
     {
         if (parse_small_integer(token, value))
             return true;
-        const auto result
-            = fast_float::from_chars(token.data(), token.data() + token.size(), value);
+        const auto result = fast_float::from_chars(
+            token.data(), token.data() + token.size(), value, float_format);
         return result.ec == std::errc { } && result.ptr == token.data() + token.size();
     }
 }

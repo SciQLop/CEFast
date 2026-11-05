@@ -1,15 +1,20 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <cefast/cefast.hpp>
 #include <cefast/gzip.hpp>
 #include <cefast/input.hpp>
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <variant>
+#include <vector>
 
 using namespace cefast;
 
@@ -106,4 +111,65 @@ TEST_CASE("gzip detected without extension", "[input]")
     const auto input = read_input(path);
     CHECK(input.bytes == plain_text);
     std::filesystem::remove(path);
+}
+
+namespace
+{
+void require_same_column(const cefast::variable& left, const cefast::variable& right)
+{
+    REQUIRE(left.type == right.type);
+    REQUIRE(left.sizes == right.sizes);
+    REQUIRE(left.records == right.records);
+    REQUIRE(left.values.index() == right.values.index());
+    std::visit(
+        [&right](const auto& values)
+        {
+            const auto& other = std::get<std::decay_t<decltype(values)>>(right.values);
+            REQUIRE(values.size() == other.size());
+            for (std::size_t index = 0; index < values.size(); ++index)
+                REQUIRE(values[index] == other[index]);
+        },
+        left.values);
+}
+}
+
+TEST_CASE("a mapped file equals the same bytes in memory", "[input]")
+{
+    const auto path = std::filesystem::path { std::string { CEFAST_TEST_RESOURCES } } / "csa"
+        / "C1_CP_FGM_SPIN__20050610_000000_20050610_002000_V140305.cef";
+    REQUIRE(std::filesystem::exists(path));
+    const auto text = read_bytes(path);
+
+    const auto from_path = load(path);
+    const auto from_bytes = load(std::span<const char> { text.data(), text.size() });
+
+    REQUIRE(from_path.variables.size() == from_bytes.variables.size());
+    for (std::size_t index = 0; index < from_path.variables.size(); ++index)
+        require_same_column(from_path.variables[index], from_bytes.variables[index]);
+}
+
+TEST_CASE("an empty file raises instead of crashing", "[input]")
+{
+    const auto path = std::filesystem::temp_directory_path() / "cefast_input_empty.cef";
+    {
+        std::ofstream file { path, std::ios::binary };
+    }
+    CHECK(read_input(path).text.empty());
+    try
+    {
+        load(path);
+        FAIL("an empty file was accepted");
+    }
+    catch (const parse_error& error)
+    {
+        CHECK(std::string { error.what() }.find("DATA_UNTIL") != std::string_view::npos);
+    }
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("in-memory input is borrowed, not copied", "[input]")
+{
+    const auto input = read_input(as_span(plain_text));
+    CHECK(input.text.data() == plain_text.data());
+    CHECK(input.text.size() == plain_text.size());
 }

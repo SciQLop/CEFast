@@ -88,17 +88,28 @@ using cpp_utils::containers::no_init_vector;
 }
 
 // Named shapes: record-varying data is (records, *SIZES) but a scalar (no SIZES, or SIZES = 1)
-// drops the SIZES part; non-record-varying data has no records dimension at all, so SIZES = 1
-// really is (1,) and an undeclared SIZES is 0-d. Ranges gain the trailing start/stop axis.
+// drops the SIZES part; non-record-varying data has no records dimension at all, so a scalar is
+// (1,) whether the producer wrote SIZES = 1 or nothing (CEFLIB's convention too). Ranges gain the
+// trailing start/stop axis.
 [[nodiscard]] std::vector<py::ssize_t> shape_of(const cefast::variable& var)
 {
     const bool scalar = var.sizes.empty() || (var.sizes.size() == 1 && var.sizes.front() == 1);
     std::vector<py::ssize_t> shape;
-    if (!var.is_nrv)
+    if (var.is_nrv)
+    {
+        if (var.sizes.empty())
+            shape.push_back(1);
+        else
+            for (const auto size : var.sizes)
+                shape.push_back(static_cast<py::ssize_t>(size));
+    }
+    else
+    {
         shape.push_back(static_cast<py::ssize_t>(var.records));
-    if (var.is_nrv || !scalar)
-        for (const auto size : var.sizes)
-            shape.push_back(static_cast<py::ssize_t>(size));
+        if (!scalar)
+            for (const auto size : var.sizes)
+                shape.push_back(static_cast<py::ssize_t>(size));
+    }
     if (var.type == cefast::value_type::ISO_TIME_RANGE)
         shape.push_back(2);
     return shape;

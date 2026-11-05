@@ -106,6 +106,14 @@ class TestVariables(unittest.TestCase):
         self.assertEqual(half_interval.values.shape, (1,))
         self.assertEqual(half_interval.values[0], 2.0)
 
+    def test_nrv_scalar_without_sizes_shape(self):
+        # No SIZES at all: one element, like CEFLIB's (1,) and like SIZES = 1.
+        d1 = CORPUS / "D1_SP_AUX__20050610_000000_20050610_020000_V150319.cef"
+        half_interval = cefast.load(d1)["Half_interval__D1_SP_AUX"]
+        self.assertTrue(half_interval.is_nrv)
+        self.assertEqual(half_interval.sizes, ())
+        self.assertEqual(half_interval.values.shape, (1,))
+
     def test_varying_scalar_shape(self):
         time = cefast.load(FGM)["time_tags__C1_CP_FGM_SPIN"]
         self.assertFalse(time.is_nrv)

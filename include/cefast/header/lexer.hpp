@@ -1,7 +1,9 @@
 #pragma once
 #include <cstddef>
+#include <deque>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -11,16 +13,18 @@
 
 namespace cefast
 {
+// Views, not copies: the header is a text format and every token is a slice of the input (or of a
+// joined continuation line), so lexing allocates nothing per token.
 struct token
 {
-    std::string text;
+    std::string_view text;
     bool quoted;
 };
 
 struct header_line
 {
-    std::string key;
-    std::vector<token> values;
+    std::string_view key;
+    std::span<const token> values;
     std::size_t line;
     // Shared by every line of one lex_header call, so an error raised while parsing an included
     // .ceh names that file and not the .cef that included it.
@@ -32,6 +36,11 @@ struct lexed_header
     std::vector<header_line> lines;
     std::size_t data_offset = 0;
     std::size_t data_line = 0;
+    // Storage the views above point into. A deque, so that pushing a key or a joined line never
+    // moves the ones already handed out as views.
+    std::vector<token> tokens;
+    std::deque<std::string> keys;
+    std::deque<std::string> joined;
 };
 
 namespace detail
@@ -78,18 +87,17 @@ namespace detail
         {
             if (piece.size() < 2 || piece.back() != '"')
                 throw parse_error(source, line_number, "unterminated quote");
-            tokens.push_back({ std::string { piece.substr(1, piece.size() - 2) }, true });
+            tokens.push_back({ piece.substr(1, piece.size() - 2), true });
             return;
         }
-        tokens.push_back({ std::string { piece }, false });
+        tokens.push_back({ piece, false });
     }
 
     // Values are comma-separated outside quotes; quoted text is verbatim (CEF has no escape
     // syntax).
-    inline std::vector<token> split_values(
-        std::string_view text, std::string_view source, std::size_t line_number)
+    inline void split_values(std::vector<token>& tokens, std::string_view text,
+        std::string_view source, std::size_t line_number)
     {
-        std::vector<token> tokens;
         bool quoted = false;
         std::size_t start = 0;
         for (std::size_t i = 0; i < text.size(); ++i)
@@ -107,7 +115,6 @@ namespace detail
             }
         }
         append_value(tokens, trim(text.substr(start)), source, line_number);
-        return tokens;
     }
 
     struct scanned_line
@@ -143,34 +150,18 @@ namespace detail
         return { visible, false };
     }
 
-    inline std::optional<header_line> parse_line(std::string_view text, std::size_t line_number,
-        const std::shared_ptr<const std::string>& source)
+    // Offset of the '=' that separates key and values, ignoring the ones inside quotes.
+    [[nodiscard]] inline std::size_t find_equals(std::string_view text) noexcept
     {
-        text = trim_left(text);
-        if (text.empty())
-            return std::nullopt;
-
-        std::size_t equals = std::string_view::npos;
         bool quoted = false;
         for (std::size_t i = 0; i < text.size(); ++i)
         {
             if (text[i] == '"')
                 quoted = !quoted;
             else if (!quoted && text[i] == '=')
-            {
-                equals = i;
-                break;
-            }
+                return i;
         }
-        if (equals == std::string_view::npos || trim(text.substr(0, equals)).empty())
-            throw parse_error(*source, line_number, "expected KEY = value");
-
-        header_line line;
-        line.key = upper(trim(text.substr(0, equals)));
-        line.values = split_values(text.substr(equals + 1), *source, line_number);
-        line.line = line_number;
-        line.source = source;
-        return line;
+        return std::string_view::npos;
     }
 }
 
@@ -179,14 +170,23 @@ namespace detail
 inline lexed_header lex_header(
     std::string_view text, std::string_view source, bool require_data_until = true)
 {
+    struct pending_line
+    {
+        std::string_view key;
+        std::size_t first;
+        std::size_t count;
+        std::size_t line;
+    };
+
     const auto source_name = std::make_shared<const std::string>(source);
     lexed_header result;
-    std::string logical;
+    std::vector<pending_line> pending;
+    std::string_view logical;
     std::size_t logical_line = 0;
     std::size_t line_number = 1;
     std::size_t next_line = 1;
     std::size_t offset = 0;
-    bool pending = false;
+    bool continued = false;
     bool found = false;
 
     while (offset < text.size())
@@ -196,25 +196,45 @@ inline lexed_header lex_header(
         const auto end = newline == std::string_view::npos ? text.size() : newline;
         const auto scanned
             = detail::scan_line(text.substr(offset, end - offset), source, line_number);
-        if (!pending)
+        if (!continued)
         {
-            logical.clear();
             logical_line = line_number;
-        }
-        logical.append(scanned.text);
-        pending = scanned.continued;
-        if (!pending)
-        {
-            if (auto line = detail::parse_line(logical, logical_line, source_name))
+            if (scanned.continued)
             {
-                found = line->key == "DATA_UNTIL";
-                result.lines.push_back(std::move(*line));
+                result.joined.emplace_back(scanned.text);
+                logical = result.joined.back();
+            }
+            else
+                logical = scanned.text;
+        }
+        else
+        {
+            result.joined.back().append(scanned.text);
+            logical = result.joined.back();
+        }
+        continued = scanned.continued;
+        if (!continued)
+        {
+            auto visible = detail::trim_left(logical);
+            if (!visible.empty())
+            {
+                const auto equals = detail::find_equals(visible);
+                const auto key = detail::trim(visible.substr(0, equals));
+                if (equals == std::string_view::npos || key.empty())
+                    throw parse_error(source, logical_line, "expected KEY = value");
+                result.keys.emplace_back(detail::upper(key));
+                const auto first = result.tokens.size();
+                detail::split_values(
+                    result.tokens, visible.substr(equals + 1), source, logical_line);
+                pending.push_back(
+                    { result.keys.back(), first, result.tokens.size() - first, logical_line });
+                found = pending.back().key == "DATA_UNTIL";
                 next_line = line_number + 1;
                 if (found)
                 {
                     result.data_offset = newline == std::string_view::npos ? text.size() : end + 1;
                     result.data_line = next_line;
-                    return result;
+                    break;
                 }
             }
         }
@@ -224,17 +244,33 @@ inline lexed_header lex_header(
         offset = end + 1;
     }
 
-    if (pending && !logical.empty())
+    if (continued && !logical.empty())
     {
-        if (auto line = detail::parse_line(logical, logical_line, source_name))
+        const auto equals = detail::find_equals(logical);
+        const auto key = detail::trim(logical.substr(0, equals));
+        if (equals != std::string_view::npos && !key.empty())
         {
-            found = line->key == "DATA_UNTIL";
-            result.lines.push_back(std::move(*line));
+            result.keys.emplace_back(detail::upper(key));
+            const auto first = result.tokens.size();
+            detail::split_values(result.tokens, logical.substr(equals + 1), source, logical_line);
+            pending.push_back(
+                { result.keys.back(), first, result.tokens.size() - first, logical_line });
+            found = found || pending.back().key == "DATA_UNTIL";
         }
     }
+
+    result.lines.reserve(pending.size());
+    const std::span<const token> all { result.tokens };
+    for (const auto& line : pending)
+        result.lines.push_back(
+            { line.key, all.subspan(line.first, line.count), line.line, source_name });
+
+    if (found)
+        return result;
+
     result.data_offset = text.size();
     result.data_line = next_line;
-    if (!found && require_data_until)
+    if (require_data_until)
         throw parse_error(source, line_number, "DATA_UNTIL missing");
     return result;
 }

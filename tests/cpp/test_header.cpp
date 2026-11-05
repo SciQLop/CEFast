@@ -1,6 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -8,6 +14,47 @@
 #include <cefast/input.hpp>
 
 using namespace cefast;
+
+namespace
+{
+// Counts allocations issued while the scope is armed, to keep the header path free of per-line
+// allocations: the lexer hands out views into the input text and owns only the upper-cased keys
+// and the joined continuation lines.
+std::size_t allocation_count = 0;
+bool count_allocations = false;
+
+struct allocation_scope
+{
+    allocation_scope() { reset(); }
+    ~allocation_scope() { count_allocations = false; }
+    void reset()
+    {
+        allocation_count = 0;
+        count_allocations = true;
+    }
+    void stop() { count_allocations = false; }
+    [[nodiscard]] std::size_t count() const { return allocation_count; }
+};
+}
+
+void* operator new(std::size_t size)
+{
+    if (count_allocations)
+        ++allocation_count;
+    if (void* block = std::malloc(size == 0 ? 1 : size))
+        return block;
+    throw std::bad_alloc { };
+}
+
+void operator delete(void* block) noexcept
+{
+    std::free(block);
+}
+
+void operator delete(void* block, std::size_t) noexcept
+{
+    std::free(block);
+}
 
 namespace
 {
@@ -326,4 +373,31 @@ END_VARIABLE = a
 DATA_UNTIL = END_DATA
 )"),
         parse_error);
+}
+
+TEST_CASE("header: the WHI header is lexed and parsed without per-line allocations", "[header]")
+{
+    const std::string text = [&]
+    {
+        std::ifstream stream { fixture("whi-header.cef"), std::ios::binary };
+        REQUIRE(stream);
+        return std::string { std::istreambuf_iterator<char> { stream }, { } };
+    }();
+    const auto lines = static_cast<std::size_t>(std::count(text.begin(), text.end(), '\n'));
+
+    auto input = input_buffer { text, "whi-header.cef", std::nullopt };
+    allocation_scope scope;
+    const auto lexed = lex_header(input.bytes, input.source);
+    const auto lex_allocations = scope.count();
+    scope.reset();
+    const auto file = parse_header(lexed, input, { });
+    const auto parse_allocations = scope.count();
+    scope.stop();
+
+    INFO("lines: " << lines << ", lex: " << lex_allocations << ", parse: " << parse_allocations);
+    // 472 lines: 62 allocations while lexing (against 564 when every key and token was a
+    // std::string) and 550 with the model built, against 1599 before.
+    CHECK(lex_allocations < lines / 4);
+    CHECK(lex_allocations + parse_allocations < 2 * lines);
+    CHECK(file.file.variables.size() == 10);
 }

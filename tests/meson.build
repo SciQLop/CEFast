@@ -44,4 +44,11 @@ if get_option('python')
       env : ['PYTHONPATH=' + meson.project_build_root(),
              'CEFAST_TEST_RESOURCES=' + test_resources],
       depends : _cefast)
+
+  test('ceflib', python3,
+      args : [files('python/test_vs_ceflib.py')],
+      env : ['PYTHONPATH=' + meson.project_build_root(),
+             'CEFAST_TEST_RESOURCES=' + test_resources],
+      depends : _cefast,
+      timeout : 600)
 endif

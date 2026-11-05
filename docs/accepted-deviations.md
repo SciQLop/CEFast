@@ -24,3 +24,22 @@ allows. Each row is a deliberate, tested departure; anything not listed must be 
 Rejected on purpose, with an error: a field count that differs from the declared variables, an
 unparseable number or time, an empty field, an unterminated quote, whitespace or a second token
 inside one value, a missing `INCLUDE`, an unclosed or mismatched block, and a non-CEF-2 version.
+
+## CEFLIB differences
+
+CEFLIB 1.8.6 is both the reference reader and a 2000s C library: these are the places where it is
+not usable as an oracle as-is. `tests/python/test_vs_ceflib.py` normalises every row below and
+compares all 41 corpus files; each file runs in its own subprocess because CEFLIB is a global
+singleton with no unload.
+
+| # | CEFLIB behaviour | Evidence | How cefast differs |
+|---|---|---|---|
+| 1 | Variable names and every variable-attribute value lose their `__<DATASET_ID>` suffix | `C/src/CEF.c:431` (`Prefixe` on the name), `:1345` (on each attribute value) | cefast keeps the name as written; the test compares short names |
+| 2 | Synthetic `K001…` variables are created for `DELTA_PLUS`/`DELTA_MINUS` constants | `Allocate_var` → `Create_constant` | cefast keeps them as attributes; the test ignores `K…` variables |
+| 3 | `BYTE` variables cannot be read (`cef_var` has no `CEF_BYTE` case) | `PYTHON/src/ceflib.c:521-543` | cefast returns `uint8`; the test skips BYTE (no CSA file uses it) |
+| 4 | Times are `float64` milliseconds since 1958-01-01, so sub-millisecond digits are lost | `LIB/src/TIMES.c` (`MILLI_TO_1958`) | cefast returns `datetime64[ns]`; the test allows 1 ms |
+| 5 | The number parser accumulates digit weights and is not correctly rounded | `LIB/src/CEF.c` `str_to_double` | cefast uses fast_float; the test allows rtol 1e-6 (FLOAT) / 1e-12 (DOUBLE) |
+| 6 | `gattrs()` exposes only `FILE_NAME`, `FILE_FORMAT_VERSION`, `END_OF_RECORD_MARKER`, `DATA_UNTIL` | `PYTHON/src/ceflib.c` | cefast exposes the metadata blocks; the test compares only the two common keys |
+| 7 | A `\` continuation inside a metadata block is a fatal error (`Line 301 Unauthorized token : '\ '`), because continuation is only implemented in `Parse_variable` | `C/src/CEF.c:1331` | cefast continues any header line (deviation row 7); `CC_CP_AUX_MAARBLE_KIR_ULF_PC35` is unreadable by CEFLIB and is the one corpus file the test skips |
+| 8 | A record ends only when the marker is at end of line | `Read_CEF_record`, `:906-918` | cefast follows the spec: the marker ends a record anywhere outside quotes |
+| 9 | One file per process, no unload | global `root` descriptor | cefast is an immutable value returned by `load()` |

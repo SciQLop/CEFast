@@ -252,11 +252,25 @@ namespace detail
         }
     }
 
+    // Fill values are short, so the size check decides most tokens and the few equal-length ones
+    // compare a few bytes inline instead of paying for a memcmp call.
+    [[nodiscard]] inline bool same_text(std::string_view left, std::string_view right) noexcept
+    {
+        if (left.size() != right.size())
+            return false;
+        if (right.size() > 16)
+            return left == right;
+        for (std::size_t index = 0; index < left.size(); ++index)
+            if (left[index] != right[index])
+                return false;
+        return true;
+    }
+
     // One data token into its column. Returns false when the text cannot represent the type: the
     // caller owns the source/line/record context of the error.
     [[nodiscard]] inline bool store(column_state& state, std::string_view token)
     {
-        if (state.has_fill && token == state.fillval)
+        if (state.has_fill && same_text(token, state.fillval))
         {
             switch (state.type)
             {

@@ -401,3 +401,17 @@ TEST_CASE("records: a terminator followed by blank lines still cuts", "[records]
     const auto result = load(header("", one_float) + "1.5\nEND_DATA  ! end\n\n  \n");
     REQUIRE(result.file.variables[0].records == 1);
 }
+
+TEST_CASE("records: the inline fill comparison matches string_view equality", "[records]")
+{
+    // store() compares a token with FILLVAL through same_text() to keep short fills out of memcmp;
+    // the shortcut must accept and reject exactly what string_view equality does.
+    const std::string_view fills[] = { "", "0", "-1e+31", "0.0", "99",
+        "9999-99-99T99:99:99Z", "2002-02-02T00:00:06.267Z", "a much longer fill value than sixteen" };
+    const std::string_view tokens[] = { "", "0", "00", "-1e+31", "-1e+32", "0.0", "99", "9",
+        "9999-99-99T99:99:99Z", "9999-99-99T99:99:99", "2002-02-02T00:00:06.267Z",
+        "a much longer fill value than sixteen", "a much longer fill value than seventee" };
+    for (const auto fill : fills)
+        for (const auto token : tokens)
+            CHECK(detail::same_text(token, fill) == (token == fill));
+}

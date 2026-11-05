@@ -62,11 +62,12 @@ cpp_utils  <──  CEFast (new)        speasy ── uses ──> cefast (Pytho
    opt-in-by-include model: only code that includes it needs pybind11/CPython). It starts with
    the generic helpers now in `CDFpp/pycdfpp/` that CEFast needs (user decision: start small,
    grow when a second consumer such as space_ouija needs more):
-   - numpy allocation without zero-fill (`fast_allocate_array`) + owner keep-alive capsule;
-   - GIL helpers (`without_gil`, interpreter-exit guard);
+   - numpy allocation without zero-fill (`fast_allocate_array`) + zero-copy view with owner
+     keep-alive (`view_with_owner`);
    - time conversions: C++ time point ↔ `datetime.datetime`, ns ↔ `datetime64[ns]`
      (the generic part of `pycdfpp/chrono.hpp`, ~100 lines; the CDF EPOCH/TT2000 parts stay).
-   Not moved yet: list/tuple browsing (write path only), fsspec range-reader bridge, string
+   Not moved yet: GIL helpers and interpreter-exit guard (only remote readers need them;
+   CEFast uses a plain `gil_scoped_release`), list/tuple browsing (write path only), fsspec range-reader bridge, string
    helpers. pycdfpp is switched to the moved helpers; pycdfpp headers are not installed, so no
    public API changes. Full CDFpp test suite must pass.
    **Gzip is not moved** (user decision): CDFpp's wrappers need the uncompressed size up

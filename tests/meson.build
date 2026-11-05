@@ -31,3 +31,8 @@ test_records = executable('test_records', 'cpp/test_records.cpp',
     dependencies : [cefast_dep, catch2_dep],
     cpp_args : [test_defines])
 test('records', test_records, args : ['-o', 'records_out.xml', '-r', 'xml'])
+
+test_corpus = executable('test_corpus', 'cpp/test_corpus.cpp',
+    dependencies : [cefast_dep, catch2_dep],
+    cpp_args : [test_defines])
+test('corpus', test_corpus, args : ['-o', 'corpus_out.xml', '-r', 'xml'])

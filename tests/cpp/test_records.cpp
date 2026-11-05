@@ -243,3 +243,11 @@ TEST_CASE("records: a quote after unquoted text raises", "[records]")
 {
     check_missing_separator(header("\"$\"", one_char) + "a\"b\" $\nEND_DATA\n");
 }
+
+TEST_CASE("records: unquoted CHAR text is kept, quotes are optional", "[records]")
+{
+    // The spec says text entries must be quoted; producer files write them bare.
+    const auto parsed = load(header("\"$\"", one_char) + "abc $\nEND_DATA\n");
+    REQUIRE(parsed.file.variables[0].records == 1);
+    CHECK(std::get<std::vector<std::string>>(parsed.file.variables[0].values)[0] == "abc");
+}

@@ -1,0 +1,5 @@
+FILE_NAME = "main.cef"
+FILE_FORMAT_VERSION = "CEF-2.0"
+INCLUDE = "common.ceh"
+DATA_UNTIL = END_DATA
+END_DATA

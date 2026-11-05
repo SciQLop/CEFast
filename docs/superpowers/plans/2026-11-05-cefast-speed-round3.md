@@ -47,3 +47,64 @@
 - [ ] Test first: `serial_equals_parallel` on every corpus file and on the synthetic ×20 file (all columns equal, records equal); `parallel_error_reports_first_record` (two bad records, the earlier one is reported); `threads_one_is_serial`.
 - [ ] Full suite, benchmark, report the speedup vs threads on the largest corpus file and on the synthetic one; TSan run of `serial_equals_parallel` in a separate build dir.
 - [ ] Commit `perf(records): parse record chunks in parallel`.
+
+## Round 3 measurements (hardware counters)
+
+`perf stat -r N` over the whole process, divided by the number of loads. cefast uses
+`tools/bench/bench_load <file> <iterations> <threads>`; CEFLIB uses a C driver
+(`/tmp/opencode/perf/ceflib_driver.c`, `Read_CEF_file`/`Close_CEF_file`, linked against
+`libCEF_gcc.a` + `libCIS_gcc.a`), so both are native and neither pays interpreter overhead.
+
+### CODIF H1_CS, warm (50 loads serial cefast, 30 loads CEFLIB)
+
+| metric | cefast (1 thread) | CEFLIB 1.8.6 |
+|---|---|---|
+| wall per load | 7.02 ms (min) | 7.80 ms |
+| cycles | 33.9 M | 33.7 M |
+| instructions | 135.4 M | 115.7 M |
+| IPC | 3.99 | 3.43 |
+| branches | 33.9 M | 28.1 M |
+| branch misses | 54.7 k (0.16 % of branches) | 71.0 k (0.25 %) |
+| instructions per value | 228.6 | 195.4 |
+| branch misses per value | 0.092 | 0.120 |
+
+The serial parse now costs the same cycles as CEFLIB and wins on branch misses: cefast executes
+18 % more instructions per value but mispredicts 23 % fewer branches, and the wall time follows.
+With the default thread count the same load takes 4.2 ms (task-clock 12 ms per load, i.e. 2.5
+threads of useful work) — the parallel path, not the instruction count, is what puts it far ahead.
+
+### Where the branch misses are (CODIF, `perf record -e branch-misses:u`, serial)
+
+`record_scanner::run()` 37.1 %, `record_scanner::add()` 29.3 %, `parse_float<float>` 17.4 %,
+`__memcmp_avx2_movbe` 4.0 %, `lex_header` 2.9 %, `string_view::compare` 1.6 %.
+
+`parse_float` is fast_float's digit loop and its slow path; the fill-value short-circuit already
+compares lengths before bytes, so the remaining per-value misses are the digit loop's own
+branches. Replacing fast_float would be the way to move that bar, and it is not worth the risk
+for 17 % of 0.16 % of branches.
+
+### Page faults and first touch
+
+| run | minor faults | wall | task-clock |
+|---|---|---|---|
+| CODIF, cold, 1 thread | 796 | 8.0-10.5 ms | 10.7 ms |
+| CODIF, cold, default threads | 2,036 | 8.0-8.9 ms | 19.9 ms |
+| CODIF, warm, 1 thread | 55 | 7.02 ms | 7.6 ms |
+
+First touch of input plus columns costs roughly 1.0-1.5 ms cold; threads multiply the fault count
+without shortening the wall time much at this size.
+
+`madvise(MADV_SEQUENTIAL)` + `madvise(MADV_WILLNEED)` on the input mapping (cpp_utils
+`memory_mapped_file`): cold 8.3-10.3 ms against a 8.0-10.5 ms baseline, warm 6.82/6.96 ms against
+7.02/7.10 ms — inside the ±3 % noise band, so **reverted and not kept**.
+
+`MADV_HUGEPAGE`: cpp_utils' `no_init_vector` allocator already applies it above 4 MB, and CODIF's
+largest column is 2.4 MB, so no corpus file reaches it; at these sizes the effect is below the
+noise this machine can resolve, so the allocator is left unchanged.
+
+### Final per-file result (median of 5)
+
+`total: cefast 28.4 ms, CEFLIB 36.6 ms, speedup 1.29x; median 1.16x, min 0.84x, max 1.84x`.
+Still below 1.0x, all small or header-dominated: `C1_PP_DWP` 0.84x, `C1_JP_AUX_PMP` 0.89x,
+`C3_CP_RAP_DSETTINGS` 0.89x, `C4_CP_AUX_ESOC_MEP` 0.92x, `C1_CP_EDI_MP` 0.98x,
+`D1_JP_AUX_PMP` 0.98x — 10-30 us of fixed cost each, below anything the counters can separate.

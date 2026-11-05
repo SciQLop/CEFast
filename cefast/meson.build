@@ -8,4 +8,10 @@ _cefast = python3.extension_module('_cefast', files('../pycefast/_cefast.cpp'),
     subdir : 'cefast',
     install : true)
 
-python3.install_sources(files('__init__.py'), pure: false, subdir: 'cefast')
+# Same version as the wheel metadata, in the build tree and in the installed package.
+version_conf = configuration_data()
+version_conf.set('VERSION', meson.project_version())
+_version_py = configure_file(input : '_version.py.in', output : '_version.py',
+    configuration : version_conf)
+
+python3.install_sources(files('__init__.py') + [_version_py], pure: false, subdir: 'cefast')

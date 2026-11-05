@@ -2,6 +2,9 @@
 
 #include <cefast/time.hpp>
 
+#include <cstdint>
+#include <limits>
+
 using namespace cefast;
 
 TEST_CASE("ISO 8601 time parsing", "[time]")
@@ -24,4 +27,10 @@ TEST_CASE("ISO 8601 time parsing", "[time]")
     REQUIRE(range);
     CHECK((*range)[0] == 963705600000000000);
     CHECK_FALSE(parse_iso_time_range("2000-07-16T00:00:00Z"));
+
+    // The last second of the int64 nanosecond range only takes part of its fraction.
+    CHECK(parse_iso_time("2262-04-11T23:47:16.854775807Z")
+        == std::numeric_limits<std::int64_t>::max());
+    CHECK_FALSE(parse_iso_time("2262-04-11T23:47:16.854775808Z"));
+    CHECK_FALSE(parse_iso_time("2262-04-11T23:47:16.9Z"));
 }

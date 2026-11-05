@@ -1,17 +1,47 @@
 [build-system]
-requires = ["meson-python>=0.15", "pybind11>=2.11"]
+requires = ["meson-python>=0.15"]
 build-backend = "mesonpy"
 
 [project]
 name = "cefast"
 dynamic = ["version"]
 description = "Fast reader for ESA's Cluster Exchange Format (CEF 2.0)"
-readme = "docs/superpowers/specs/2026-11-05-cefast-design.md"
+summary = "A fast, pip-installable reader for ESA's Cluster Exchange Format (CEF 2.0)"
+authors = [{ name = "Alexis Jeandet", email = "alexis.jeandet@member.fsf.org" }]
+readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "COPYING" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+]
 dependencies = ["numpy"]
 
+[project.urls]
+homepage = "https://github.com/SciQLop/CEFast"
+repository = "https://github.com/SciQLop/CEFast"
+
 [tool.meson-python.args]
-setup = ["-Dwith_tests=false"]
-compile = []
-install = []
+setup = ["-Dwith_tests=false", "--force-fallback-for=pybind11"]
+
+[tool.cibuildwheel]
+build-frontend = "default"
+test-requires = ["numpy"]
+test-command = "python {project}/tests/wheel/test_wheel.py"
+
+[tool.cibuildwheel.windows]
+before-build = "python -m pip install delvewheel"
+repair-wheel-command = "python -m delvewheel repair -v -w {dest_dir} {wheel}"

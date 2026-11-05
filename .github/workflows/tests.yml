@@ -31,3 +31,32 @@ jobs:
       - name: Test log
         if: failure()
         run: cat build/meson-logs/testlog.txt
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    env:
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      ASAN_OPTIONS: halt_on_error=1:print_summary=1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tools
+        run: pip install meson ninja
+      - name: Restore the CSA corpus
+        uses: actions/cache@v4
+        with:
+          path: tests/resources/csa
+          key: csa-corpus-${{ hashFiles('tests/resources/csa_manifest.json') }}
+      - name: Download the CSA corpus
+        run: python -I tools/fetch_csa_corpus.py
+      - name: Configure
+        # No python module: the sanitised extension would need a matching interpreter.
+        run: >
+          meson setup build-asan -Db_sanitize=address,undefined -Db_lundef=false -Dpython=false
+      - name: Test
+        run: meson test -C build-asan --print-errorlogs
+      - name: Test log
+        if: failure()
+        run: cat build-asan/meson-logs/testlog.txt

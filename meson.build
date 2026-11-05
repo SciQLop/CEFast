@@ -20,6 +20,7 @@ endif
 headers = files(
     [
         'include/cefast/cefast.hpp',
+        'include/cefast/data/parallel.hpp',
         'include/cefast/data/records.hpp',
         'include/cefast/data/structural.hpp',
         'include/cefast/errors.hpp',

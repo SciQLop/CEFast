@@ -318,3 +318,113 @@ TEST_CASE("corpus: the stop-skipping scan matches the byte-by-byte scan", "[corp
         }
     }
 }
+
+namespace
+{
+[[nodiscard]] cefast::cef_file load_with_threads(const fs::path& path, std::size_t threads)
+{
+    cefast::load_options options;
+    options.threads = threads;
+    return cefast::load(path, options);
+}
+
+[[nodiscard]] cefast::cef_file load_text_with_threads(std::string_view text, std::size_t threads)
+{
+    cefast::load_options options;
+    options.threads = threads;
+    return cefast::load(std::span<const char> { text.data(), text.size() }, options);
+}
+
+// One dataset's records repeated until the file crosses the parallel threshold, without shipping
+// megabytes of test data. The trailer (!RECORDS and the DATA_UNTIL value) is dropped so the copies
+// are pure record text.
+[[nodiscard]] std::string repeated_records(const fs::path& path, std::size_t copies)
+{
+    const std::string text = read_file(path);
+    const auto data_until = text.rfind("DATA_UNTIL");
+    REQUIRE(data_until != std::string::npos);
+    const auto body_start = text.find('\n', data_until);
+    REQUIRE(body_start != std::string::npos);
+    std::string body = text.substr(body_start + 1);
+    const auto hint = body.rfind("!RECORDS");
+    REQUIRE(hint != std::string::npos);
+    body.resize(hint);
+    REQUIRE(!body.empty());
+
+    std::string repeated = text.substr(0, body_start + 1);
+    for (std::size_t copy = 0; copy < copies; ++copy)
+        repeated += body;
+    repeated += "END_DATA\n";
+    return repeated;
+}
+}
+
+TEST_CASE("corpus: parallel and serial loads agree on every file")
+{
+    for (const auto& path : corpus_files())
+    {
+        INFO(path.filename().string());
+        const auto serial = load_with_threads(path, 1);
+        const auto parallel = load_with_threads(path, 4);
+        REQUIRE(serial.variables.size() == parallel.variables.size());
+        for (std::size_t index = 0; index < serial.variables.size(); ++index)
+        {
+            REQUIRE(serial.variables[index].name == parallel.variables[index].name);
+            require_same_column(serial.variables[index], parallel.variables[index]);
+        }
+    }
+}
+
+TEST_CASE("corpus: parallel parsing agrees with serial on a synthetic large file")
+{
+    constexpr std::size_t copies = 20;
+    const auto text = repeated_records(corpus_file("C1_CP_CIS-CODIF_HS_H1_CS"), copies);
+    REQUIRE(text.size() > cefast::detail::parallel_threshold);
+
+    const auto serial = load_text_with_threads(text, 1);
+    const auto parallel = load_text_with_threads(text, 4);
+    const auto automatic = load_text_with_threads(text, 0);
+
+    REQUIRE(serial.variables.size() == parallel.variables.size());
+    for (std::size_t index = 0; index < serial.variables.size(); ++index)
+    {
+        require_same_column(serial.variables[index], parallel.variables[index]);
+        require_same_column(serial.variables[index], automatic.variables[index]);
+    }
+    const auto& ions = variable_named(serial, "3d_ions__C1_CP_CIS-CODIF_HS_H1_CS");
+    CHECK(ions.records == 149 * copies);
+}
+
+TEST_CASE("corpus: a parallel parse reports the first error in file order")
+{
+    std::string text = repeated_records(corpus_file("C1_CP_CIS-CODIF_HS_H1_CS"), 20);
+    // One bad value in the first record and one near the end: the early one must win.
+    const auto first = text.find(", 8.031,");
+    REQUIRE(first != std::string::npos);
+    text.replace(first, 8, ", x8.031");
+    const auto late = text.rfind(", 15462.2,");
+    REQUIRE(late != std::string::npos);
+    text.replace(late, 10, ", y15462.2");
+
+    std::string serial_error;
+    std::string parallel_error;
+    try
+    {
+        std::ignore = load_text_with_threads(text, 1);
+    }
+    catch (const cefast::parse_error& error)
+    {
+        serial_error = error.what();
+    }
+    try
+    {
+        std::ignore = load_text_with_threads(text, 4);
+    }
+    catch (const cefast::parse_error& error)
+    {
+        parallel_error = error.what();
+    }
+    REQUIRE(!serial_error.empty());
+    CHECK(parallel_error == serial_error);
+    CHECK(serial_error.find("x8.031") != std::string::npos);
+}

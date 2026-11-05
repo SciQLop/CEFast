@@ -242,11 +242,13 @@ struct py_cef
 }
 
 [[nodiscard]] cefast::cef_file load_source(const py::object& source,
-    const std::vector<std::filesystem::path>& include_paths, const py::object& resolver)
+    const std::vector<std::filesystem::path>& include_paths, const py::object& resolver,
+    int threads)
 {
     cefast::load_options options;
     options.include_paths = include_paths;
     options.include_resolver = make_resolver(resolver);
+    options.threads = threads > 0 ? static_cast<std::size_t>(threads) : 0;
 
     cefast::cef_file file;
     if (py::isinstance<py::str>(source))
@@ -321,12 +323,13 @@ PYBIND11_MODULE(_cefast, m)
     m.def(
         "load",
         [](const py::object& source, const std::vector<std::filesystem::path>& include_paths,
-            const py::object& resolver)
+            const py::object& resolver, int threads)
         {
             return py_cef { std::make_shared<cefast::cef_file>(
-                load_source(source, include_paths, resolver)) };
+                load_source(source, include_paths, resolver, threads)) };
         },
         py::arg("source"), py::kw_only(), py::arg("include_paths") = py::tuple { },
-        py::arg("include_resolver") = py::none(),
-        "Load a CEF file from a path, bytes, bytearray or memoryview.");
+        py::arg("include_resolver") = py::none(), py::arg("threads") = 0,
+        "Load a CEF file from a path, bytes, bytearray or memoryview. threads=0 picks a count "
+        "from the machine, 1 parses serially, N uses at most N threads.");
 }

@@ -55,6 +55,13 @@ class TestLoad(unittest.TestCase):
         self.assertEqual(list(loaded), list(plain))
         self.assertEqual(loaded["B_vec_xyz_gse__C1_CP_FGM_SPIN"].values.shape, (286, 3))
 
+    def test_threads_kwarg(self):
+        serial = cefast.load(corpus_file("C1_CP_CIS-CODIF_HS_H1_CS"), threads=1)
+        parallel = cefast.load(corpus_file("C1_CP_CIS-CODIF_HS_H1_CS"), threads=4)
+        self.assertEqual(list(serial), list(parallel))
+        for name in serial:
+            np.testing.assert_array_equal(serial[name].values, parallel[name].values)
+
     def test_parse_error_type(self):
         self.assertTrue(issubclass(cefast.ParseError, ValueError))
         with self.assertRaises(cefast.ParseError):

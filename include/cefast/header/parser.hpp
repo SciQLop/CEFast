@@ -30,6 +30,8 @@ struct load_options
 {
     std::vector<std::filesystem::path> include_paths;
     std::function<std::optional<std::string>(std::string_view)> include_resolver;
+    // 0: pick from the hardware, 1: serial (the reference path), N: at most N threads.
+    std::size_t threads = 0;
 };
 
 // The header is lexed into views, but a non-record-varying variable's DATA values stay in the

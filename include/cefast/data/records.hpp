@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -357,9 +358,11 @@ namespace detail
     class record_scanner
     {
     public:
-        record_scanner(
-            schema& result, std::string_view data, std::size_t first_line, std::string_view source)
+        record_scanner(schema& result, std::string_view data, std::size_t first_line,
+            std::string_view source, std::size_t first_record = 0,
+            std::optional<std::size_t> hint = std::nullopt)
                 : result { result }
+                , first_record { first_record }
                 , data { data }
                 , line { first_line }
                 , source { source }
@@ -368,7 +371,7 @@ namespace detail
                 , single_marker { result.record_marker.size() == 1 }
                 , byte_by_byte { result.record_marker.size() != 1 }
         {
-            const auto hint = records_hint(data);
+            const auto records = hint.value_or(records_hint(data));
             columns.reserve(result.file.variables.size());
             for (auto& var : result.file.variables)
             {
@@ -378,7 +381,7 @@ namespace detail
                 var.values = make_column(var.type);
                 columns.push_back({ &var.values, var.type, var.fillval_token, nullptr, nullptr,
                     false, 0, 0, count * (var.type == value_type::ISO_TIME_RANGE ? 2 : 1) });
-                pre_size(columns.back(), hint);
+                pre_size(columns.back(), records);
                 prepare_fill(columns.back());
                 varying.push_back(&var);
                 for (std::size_t element = 0; element < count; ++element)
@@ -397,7 +400,8 @@ namespace detail
                 if (stop > position)
                 {
                     if (state == scan_state::after_value)
-                        throw parse_error(source, line, "missing separator", records + 1);
+                        throw parse_error(
+                            source, line, "missing separator", first_record + records + 1);
                     if (state == scan_state::at_value_start)
                         token_start = position;
                     state = scan_state::in_unquoted;
@@ -409,7 +413,8 @@ namespace detail
                 if (c == '"')
                 {
                     if (state != scan_state::at_value_start)
-                        throw parse_error(source, line, "missing separator", records + 1);
+                        throw parse_error(
+                            source, line, "missing separator", first_record + records + 1);
                     const auto close = data.find('"', position + 1);
                     if (close == std::string_view::npos)
                         throw parse_error(source, line, "unterminated quote");
@@ -439,7 +444,7 @@ namespace detail
                 if (c == ',')
                 {
                     if (state == scan_state::at_value_start)
-                        throw parse_error(source, line, "empty field", records + 1);
+                        throw parse_error(source, line, "empty field", first_record + records + 1);
                     close_unquoted(position, token_start);
                     state = scan_state::at_value_start;
                     ++position;
@@ -459,7 +464,8 @@ namespace detail
                     continue;
                 }
                 if (state == scan_state::after_value)
-                    throw parse_error(source, line, "missing separator", records + 1);
+                    throw parse_error(
+                        source, line, "missing separator", first_record + records + 1);
                 if (state == scan_state::at_value_start)
                     token_start = position;
                 state = scan_state::in_unquoted;
@@ -491,7 +497,7 @@ namespace detail
                 throw parse_error(source, record_line,
                     "invalid " + std::string { type_name(target.type) }
                         + " value: " + std::string { value },
-                    records + 1);
+                    first_record + records + 1);
             ++index;
         }
 
@@ -514,7 +520,7 @@ namespace detail
                 throw parse_error(source, record_line,
                     "expected " + std::to_string(slots.size()) + " values, got "
                         + std::to_string(index + surplus),
-                    records + 1);
+                    first_record + records + 1);
             ++records;
             index = 0;
             surplus = 0;
@@ -522,6 +528,7 @@ namespace detail
         }
 
         schema& result;
+        std::size_t first_record;
         std::string_view data;
         std::size_t line;
         std::string_view source;

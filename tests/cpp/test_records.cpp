@@ -80,6 +80,19 @@ TEST_CASE("records: dollar marker with trailing space", "[records]")
     CHECK(values[5] == 6.0f);
 }
 
+TEST_CASE("records: a multi-character marker still ends records", "[records]")
+{
+    // The one-character fast path must not change the generic comparison.
+    const auto result = load(header("\"$$\"", time_and_float("2"))
+        + "2002-02-02T00:00:00.000Z, 1, 2$$2002-02-02T00:00:01.000Z, 3, 4$$\nEND_DATA\n");
+    REQUIRE(result.file.variables.size() == 2);
+    CHECK(result.file.variables[0].records == 2);
+    const auto& values
+        = std::get<cpp_utils::containers::no_init_vector<float>>(result.file.variables[1].values);
+    REQUIRE(values.size() == 4);
+    CHECK(values[3] == 4.0f);
+}
+
 TEST_CASE("records: multi-line record with a comment", "[records]")
 {
     const auto result = load(header(";", time_and_float("4"))

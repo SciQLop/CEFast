@@ -120,6 +120,8 @@ namespace detail
                 , line { first_line }
                 , source { source }
                 , marker { result.record_marker }
+                , marker_char { result.record_marker.empty() ? '\0' : result.record_marker.front() }
+                , single_marker { result.record_marker.size() == 1 }
         {
             for (auto& var : result.file.variables)
             {
@@ -162,7 +164,9 @@ namespace detail
                     position = newline == std::string_view::npos ? data.size() : newline;
                     continue;
                 }
-                if (!marker.empty() && data.compare(position, marker.size(), marker) == 0)
+                if (single_marker
+                        ? c == marker_char
+                        : (!marker.empty() && data.compare(position, marker.size(), marker) == 0))
                 {
                     close_unquoted(position, token_start);
                     if (marker == "\n")
@@ -259,6 +263,8 @@ namespace detail
         std::size_t line;
         std::string_view source;
         std::string_view marker;
+        char marker_char;
+        bool single_marker;
         std::vector<variable*> varying;
         std::vector<slot> slots;
         std::size_t index = 0;

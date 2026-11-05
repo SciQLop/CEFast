@@ -152,3 +152,46 @@ Header only (C1_CP_PEA_3DXPH_DEFlux, 0.04 MB, 0 records): 0.91 ms, 45 MB/s.
 Not worth doing, with the number that says so: anything about the column dispatch (0.0 ns/token
 measured), Python-side batching (0 % measured), mmap/read changes (I/O ceiling 12.8 GB/s vs
 130 MB/s actual), and a faster float parser (4.3 ns/token is already a large share of the ideal).
+
+## After the marker fast path
+
+Same machine, `build-release`, min of 200 loads (`bench_load`), after `perf(records): compare
+single-character markers with ==`.
+
+| file | min | MB/s | ns/value |
+|---|---|---|---|
+| C1_CP_CIS-CODIF_HS_H1_CS (592 392 values) | 8.49 ms | 200.7 | 14.3 |
+| C1_CP_WHI_ELECTRON_DENSITY (244 100) | 7.60 ms | 246.3 | 31.2 |
+| CM_CP_FGM_UT_PIOR (header only, 13 958 B) | 0.09 ms | 140.2 | — |
+
+Self time, `perf report --no-children`:
+
+| symbol | CODIF | WHI | header-only |
+|---|---|---|---|
+| `record_scanner::run()` | 34.6 % | 36.7 % | — |
+| `record_scanner::add()` | 10.6 % | 4.9 % | — |
+| `append_value()` | 50.3 % | 18.1 % | — |
+| `parse_iso_time()` | — | 8.8 % | — |
+| `std::string` move ctor (CHAR cells) | — | 6.0 % | — |
+| `lex_header` + `parse_line` | 0.5 % | 0.6 % | 33.6 % |
+| `malloc`/`free`/`memmove` | 0.5 % | — | 31.9 % |
+| `vector<header_line>::push_back` | — | — | 4.5 % |
+
+The marker change moved `run()` from 44.4 % to 34.6 % on CODIF and 48.2 % to 36.7 % on WHI, and
+`memcmp` from 9.5 %/10.4 % to 0.5 %: the per-character comparison is gone as a cost, and the
+remaining `run()` is the per-byte state machine around the separator and the token end.
+
+### Round 2 order, by measured share
+
+1. **Task C, structural scan** — `run()` + `add()` is 45 % of CODIF and 42 % of WHI, and these
+   are the files where CEFLIB still wins (min 0.64x). Largest absolute win.
+2. **Task B, header without per-line vectors** — 46 % of a header-only load (`lex_header`,
+   `parse_line`, `malloc`, `memmove`, `push_back`), which is the small-file latency speasy pays
+   one file at a time. Second because its absolute cost is small on the big files (0.5 %).
+3. **Task D, fixed-width CHAR** — 6 % `std::string` construction plus CHAR's slice of
+   `append_value`, on WHI only; no other corpus file moves it.
+
+Nothing reaches the < 5 % skip rule: every hot spot above is ≥ 6 % on at least one profiled file.
+One correction to the round-1 ranking: `parse_iso_time` is now **8.8 %** of WHI, not 5.29 %, so
+SIMD ISO time is no longer below the 5 % bar. It stays out of this round (it is one value per
+record and Task C/D change the surrounding cost), but it is a legitimate round-3 item.

@@ -43,11 +43,14 @@ int main(int argc, char** argv)
 {
     if (argc < 2)
     {
-        std::fprintf(stderr, "usage: %s <file-or-directory> [iterations]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s <file-or-directory> [iterations] [threads]\n", argv[0]);
         return 2;
     }
     const auto files = inputs_of(argv[1]);
     const int iterations = argc > 2 ? std::atoi(argv[2]) : 200;
+    // 0 = one thread per core (the library default), 1 = the serial reference parser.
+    cefast::load_options options;
+    options.threads = argc > 3 ? static_cast<std::size_t>(std::atoi(argv[3])) : 0;
     if (files.empty() || iterations <= 0)
     {
         std::fprintf(stderr, "nothing to load\n");
@@ -65,14 +68,14 @@ int main(int argc, char** argv)
         const auto start = std::chrono::steady_clock::now();
         for (const auto& path : files)
         {
-            const auto parsed = cefast::load(path);
+            const auto parsed = cefast::load(path, options);
             // Counting walks every value: do it once, outside the timed loop's steady state.
             if (iteration == 0)
                 values += value_count(parsed);
         }
-        timings.push_back(std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - start)
-                              .count());
+        timings.push_back(
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+                .count());
     }
 
     // Short benchmarks live in turbo range: the minimum is steadier than the median.
@@ -81,9 +84,10 @@ int main(int argc, char** argv)
     const double median = timings[static_cast<std::size_t>(timings.size()) / 2];
     const double megabytes = static_cast<double>(bytes) / 1048576.0;
     const double values_per_run = static_cast<double>(std::max<std::size_t>(values, 1));
-    std::printf("%zu file(s), %.2f MB, %d iterations: min %.2f ms (median %.2f), %.1f MB/s, "
-                "%.2f ns/value, %zu values\n",
-        files.size(), megabytes, iterations, fastest, median,
-        megabytes / (fastest / 1000.0), fastest * 1e6 / values_per_run, values);
+    std::printf(
+        "%zu file(s), %.2f MB, %d iterations: min %.2f ms (median %.2f), %.1f MB/s, "
+        "%.2f ns/value, %zu values\n",
+        files.size(), megabytes, iterations, fastest, median, megabytes / (fastest / 1000.0),
+        fastest * 1e6 / values_per_run, values);
     return 0;
 }

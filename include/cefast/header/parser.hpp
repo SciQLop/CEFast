@@ -32,13 +32,21 @@ struct load_options
     std::function<std::optional<std::string>(std::string_view)> include_resolver;
 };
 
+// The header is lexed into views, but a non-record-varying variable's DATA values stay in the
+// schema and the schema outlives the text it was parsed from: these own their text.
+struct owned_token
+{
+    std::string text;
+    bool quoted;
+};
+
 struct schema
 {
     cef_file file;
     std::string record_marker = "\n";
     std::string data_until;
     // DATA tokens per variable, same indices as file.variables (empty for record-varying ones).
-    std::vector<std::vector<token>> nrv_data;
+    std::vector<std::vector<owned_token>> nrv_data;
 };
 
 namespace detail
@@ -407,7 +415,7 @@ namespace detail
         block state = block::none;
         attribute meta;
         variable var;
-        std::vector<token> pending_data;
+        std::vector<owned_token> pending_data;
         std::optional<value_type> meta_value_type;
         std::shared_ptr<const std::string> last_source;
         std::shared_ptr<const std::string> data_source;
@@ -520,7 +528,9 @@ namespace detail
         if (state != block::variable)
             throw parse_error(source_of(line), line.line, "DATA outside a variable block");
         var.is_nrv = true;
-        pending_data.assign(line.values.begin(), line.values.end());
+        pending_data.clear();
+        for (const auto& value : line.values)
+            pending_data.push_back({ std::string { value.text }, value.quoted });
         data_source = line.source;
         data_line = line.line;
     }
@@ -535,7 +545,7 @@ namespace detail
         type_fillval(var);
         const bool is_nrv = var.is_nrv;
         result.file.variables.push_back(std::move(var));
-        result.nrv_data.push_back(is_nrv ? std::move(pending_data) : std::vector<token> { });
+        result.nrv_data.push_back(is_nrv ? std::move(pending_data) : std::vector<owned_token> { });
         nrv_locations.emplace_back(data_source, data_line);
         state = block::none;
     }

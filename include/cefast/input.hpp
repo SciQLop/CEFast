@@ -1,7 +1,6 @@
 #pragma once
 #include <cstddef>
 #include <filesystem>
-#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -36,9 +35,9 @@ namespace detail
 // for the duration of load() (the Python wrapper exports the buffer for exactly that long).
 struct input_buffer
 {
-    // memory_mapped_file has neither a move constructor nor a deleted copy constructor (it owns a
-    // raw mapping), so a variant alternative of that type would copy the mapping and unmap twice.
-    using mapped_file = std::unique_ptr<cpp_utils::io::memory_mapped_file>;
+    // memory_mapped_file is move-only (cpp_utils >= 4ac71f8), so the variant owns the mapping
+    // directly: copying it would unmap the same mapping twice.
+    using mapped_file = cpp_utils::io::memory_mapped_file;
     using storage_type = std::variant<std::monostate, mapped_file, std::string>;
 
     storage_type storage;
@@ -101,8 +100,9 @@ private:
     {
         if (const auto* owned = std::get_if<std::string>(&storage))
             return *owned;
-        if (const auto* file = std::get_if<mapped_file>(&storage); file != nullptr && *file)
-            return std::string_view { (*file)->data(), (*file)->size() };
+        if (const auto* file = std::get_if<mapped_file>(&storage);
+            file != nullptr && file->is_valid())
+            return std::string_view { file->data(), file->size() };
         return { };
     }
 };
@@ -121,11 +121,11 @@ private:
     if (std::filesystem::file_size(path, error) == 0)
         return input_buffer { std::string { }, source, path.parent_path() };
 
-    auto mapping = std::make_unique<cpp_utils::io::memory_mapped_file>(source);
-    if (!mapping->is_valid())
+    auto mapping = cpp_utils::io::memory_mapped_file { source };
+    if (!mapping.is_valid())
         throw fail();
 
-    const std::span<const char> mapped { mapping->data(), mapping->size() };
+    const std::span<const char> mapped { mapping.data(), mapping.size() };
     if (!detail::is_gzip(mapped))
         return input_buffer::mapped(std::move(mapping), source, path.parent_path());
 

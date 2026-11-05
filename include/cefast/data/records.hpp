@@ -1,5 +1,8 @@
 #pragma once
+#include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -94,11 +97,251 @@ namespace detail
 
     // One slot per value of one record, in record order: the column it belongs to, its type and the
     // variable's fill token. Built once, so every value is appended straight from the input text.
-    struct slot
+    struct column_state
     {
         column* values;
         value_type type;
         std::string_view fillval;
+        // Typed cursor into the pre-sized buffer; the type of the pointees is `type`. null when the
+        // column is not pre-sized (CHAR) or not sized yet.
+        void* cursor = nullptr;
+        void* limit = nullptr;
+        bool has_fill = false;
+        double fill_number = 0;
+        std::int64_t fill_integer = 0;
+        // Values this column receives per record (ranges store two per element).
+        std::size_t per_record = 1;
+    };
+
+    template <typename T>
+    [[nodiscard]] inline cpp_utils::containers::no_init_vector<T>& typed(column& values)
+    {
+        return std::get<cpp_utils::containers::no_init_vector<T>>(values);
+    }
+
+    template <typename T>
+    inline void set_cursor(column_state& state, std::size_t from)
+    {
+        auto& values = typed<T>(*state.values);
+        state.cursor = values.data() + from;
+        state.limit = values.data() + values.size();
+    }
+
+    // Sizes the column for `records` records up front so no write has to check the capacity; a file
+    // with more records than its hint grows by doubling.
+    inline void pre_size(column_state& state, std::size_t records)
+    {
+        const auto total = records * state.per_record;
+        if (total == 0)
+            return;
+        switch (state.type)
+        {
+            case value_type::FLOAT:
+                typed<float>(*state.values).resize(total);
+                set_cursor<float>(state, 0);
+                break;
+            case value_type::DOUBLE:
+                typed<double>(*state.values).resize(total);
+                set_cursor<double>(state, 0);
+                break;
+            case value_type::INT:
+                typed<std::int32_t>(*state.values).resize(total);
+                set_cursor<std::int32_t>(state, 0);
+                break;
+            case value_type::BYTE:
+                typed<std::uint8_t>(*state.values).resize(total);
+                set_cursor<std::uint8_t>(state, 0);
+                break;
+            case value_type::ISO_TIME:
+            case value_type::ISO_TIME_RANGE:
+                typed<std::int64_t>(*state.values).resize(total);
+                set_cursor<std::int64_t>(state, 0);
+                break;
+            case value_type::CHAR:
+                break;
+        }
+    }
+
+    inline void finish(column_state& state, std::size_t records)
+    {
+        const auto total = records * state.per_record;
+        switch (state.type)
+        {
+            case value_type::FLOAT:
+                typed<float>(*state.values).resize(total);
+                break;
+            case value_type::DOUBLE:
+                typed<double>(*state.values).resize(total);
+                break;
+            case value_type::INT:
+                typed<std::int32_t>(*state.values).resize(total);
+                break;
+            case value_type::BYTE:
+                typed<std::uint8_t>(*state.values).resize(total);
+                break;
+            case value_type::ISO_TIME:
+            case value_type::ISO_TIME_RANGE:
+                typed<std::int64_t>(*state.values).resize(total);
+                break;
+            case value_type::CHAR:
+                break;
+        }
+    }
+
+    template <typename T>
+    inline void grow(column_state& state)
+    {
+        auto& values = typed<T>(*state.values);
+        const auto size = values.size();
+        values.resize(size == 0 ? std::max<std::size_t>(state.per_record, 8) : size * 2);
+        set_cursor<T>(state, size);
+    }
+
+    template <typename T>
+    inline void put(column_state& state, T value)
+    {
+        if (state.cursor == state.limit)
+            grow<T>(state);
+        *static_cast<T*>(state.cursor) = value;
+        state.cursor = static_cast<T*>(state.cursor) + 1;
+    }
+
+    // Only numeric and time types short-circuit: a CHAR fill still has to be copied.
+    inline void prepare_fill(column_state& state)
+    {
+        if (state.fillval.empty() || state.type == value_type::CHAR)
+            return;
+        switch (state.type)
+        {
+            case value_type::FLOAT:
+            {
+                float value = 0;
+                state.has_fill = parse_float(state.fillval, value);
+                state.fill_number = value;
+                break;
+            }
+            case value_type::DOUBLE:
+                state.has_fill = parse_float(state.fillval, state.fill_number);
+                break;
+            case value_type::INT:
+            {
+                std::int64_t value = 0;
+                state.has_fill = parse_int(state.fillval, value)
+                    && value >= std::numeric_limits<std::int32_t>::min()
+                    && value <= std::numeric_limits<std::int32_t>::max();
+                state.fill_integer = value;
+                break;
+            }
+            case value_type::BYTE:
+            {
+                std::int64_t value = 0;
+                state.has_fill = parse_int(state.fillval, value) && value >= 0 && value <= 255;
+                state.fill_integer = value;
+                break;
+            }
+            case value_type::ISO_TIME:
+            case value_type::ISO_TIME_RANGE:
+                // A time fill is a marker, not a number: any text equal to FILLVAL is NaT.
+                state.has_fill = true;
+                break;
+            case value_type::CHAR:
+                break;
+        }
+    }
+
+    // One data token into its column. Returns false when the text cannot represent the type: the
+    // caller owns the source/line/record context of the error.
+    [[nodiscard]] inline bool store(column_state& state, std::string_view token)
+    {
+        if (state.has_fill && token == state.fillval)
+        {
+            switch (state.type)
+            {
+                case value_type::FLOAT:
+                    put(state, static_cast<float>(state.fill_number));
+                    return true;
+                case value_type::DOUBLE:
+                    put(state, state.fill_number);
+                    return true;
+                case value_type::INT:
+                    put(state, static_cast<std::int32_t>(state.fill_integer));
+                    return true;
+                case value_type::BYTE:
+                    put(state, static_cast<std::uint8_t>(state.fill_integer));
+                    return true;
+                case value_type::ISO_TIME:
+                    put(state, nat);
+                    return true;
+                case value_type::ISO_TIME_RANGE:
+                    put(state, nat);
+                    put(state, nat);
+                    return true;
+                case value_type::CHAR:
+                    break;
+            }
+        }
+        switch (state.type)
+        {
+            case value_type::FLOAT:
+            {
+                float value = 0;
+                if (!parse_float(token, value))
+                    return false;
+                put(state, value);
+                return true;
+            }
+            case value_type::DOUBLE:
+            {
+                double value = 0;
+                if (!parse_float(token, value))
+                    return false;
+                put(state, value);
+                return true;
+            }
+            case value_type::INT:
+            {
+                std::int64_t value = 0;
+                if (!parse_int(token, value) || value < std::numeric_limits<std::int32_t>::min()
+                    || value > std::numeric_limits<std::int32_t>::max())
+                    return false;
+                put(state, static_cast<std::int32_t>(value));
+                return true;
+            }
+            case value_type::BYTE:
+            {
+                std::int64_t value = 0;
+                if (!parse_int(token, value) || value < 0 || value > 255)
+                    return false;
+                put(state, static_cast<std::uint8_t>(value));
+                return true;
+            }
+            case value_type::ISO_TIME:
+            {
+                const auto time = parse_iso_time(token);
+                if (!time)
+                    return false;
+                put(state, *time);
+                return true;
+            }
+            case value_type::ISO_TIME_RANGE:
+            {
+                const auto range = parse_iso_time_range(token);
+                if (!range)
+                    return false;
+                put(state, (*range)[0]);
+                put(state, (*range)[1]);
+                return true;
+            }
+            case value_type::CHAR:
+                std::get<std::vector<std::string>>(*state.values).push_back(std::string { token });
+                return true;
+        }
+        return false;
+    }
+
+    struct slot
+    {
+        column_state* state;
     };
 
     // One pass over the data text: quoted tokens are consumed whole (so separators, markers and '!'
@@ -125,18 +368,21 @@ namespace detail
                 , single_marker { result.record_marker.size() == 1 }
                 , byte_by_byte { result.record_marker.size() != 1 }
         {
+            const auto hint = records_hint(data);
+            columns.reserve(result.file.variables.size());
             for (auto& var : result.file.variables)
             {
                 if (var.is_nrv)
                     continue;
-                varying.push_back(&var);
                 const auto count = element_count(var);
-                const auto hint = records_hint(data);
                 var.values = make_column(var.type);
-                if (hint != 0)
-                    std::visit([&](auto& values) { values.reserve(hint * count); }, var.values);
+                columns.push_back({ &var.values, var.type, var.fillval_token, nullptr, nullptr,
+                    false, 0, 0, count * (var.type == value_type::ISO_TIME_RANGE ? 2 : 1) });
+                pre_size(columns.back(), hint);
+                prepare_fill(columns.back());
+                varying.push_back(&var);
                 for (std::size_t element = 0; element < count; ++element)
-                    slots.push_back({ &var.values, var.type, var.fillval_token });
+                    slots.push_back({ &columns.back() });
             }
         }
 
@@ -224,6 +470,8 @@ namespace detail
                 end_record();
             for (auto* var : varying)
                 var->records = records;
+            for (auto& column : columns)
+                finish(column, records);
         }
 
     private:
@@ -238,8 +486,8 @@ namespace detail
                 ++surplus;
                 return;
             }
-            const auto& target = slots[index];
-            if (!append_value(*target.values, target.type, value, target.fillval))
+            auto& target = *slots[index].state;
+            if (!store(target, value))
                 throw parse_error(source, record_line,
                     "invalid " + std::string { type_name(target.type) }
                         + " value: " + std::string { value },
@@ -282,6 +530,7 @@ namespace detail
         bool single_marker;
         bool byte_by_byte;
         std::vector<variable*> varying;
+        std::vector<column_state> columns;
         std::vector<slot> slots;
         std::size_t index = 0;
         std::size_t surplus = 0;

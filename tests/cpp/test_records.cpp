@@ -345,3 +345,43 @@ TEST_CASE("records: values past the slot table are counted, not parsed", "[recor
         CHECK(message.find("invalid") == std::string::npos);
     }
 }
+
+TEST_CASE("records: a hint shorter than the file still stores every value", "[records]")
+{
+    // The hint sizes the column up front; a file with more records than that must grow it.
+    const auto result
+        = load(header("", three_ints) + "!RECORDS= 1\n1,2,3\n4,5,6\n7,8,9\nEND_DATA\n");
+    const auto& values = std::get<cpp_utils::containers::no_init_vector<std::int32_t>>(
+        result.file.variables[0].values);
+    REQUIRE(values.size() == 9);
+    CHECK(values[0] == 1);
+    CHECK(values[4] == 5);
+    CHECK(values[8] == 9);
+}
+
+TEST_CASE("records: a hint longer than the file trims the column", "[records]")
+{
+    const auto result = load(header("", three_ints) + "!RECORDS= 50\n1,2,3\n4,5,6\nEND_DATA\n");
+    const auto& values = std::get<cpp_utils::containers::no_init_vector<std::int32_t>>(
+        result.file.variables[0].values);
+    REQUIRE(values.size() == 6);
+    CHECK(values[5] == 6);
+}
+
+TEST_CASE("records: time ranges grow two values per record", "[records]")
+{
+    // ISO_TIME_RANGE stores start and stop, so per-record sizing must account for both.
+    constexpr std::string_view ranges = R"(START_VARIABLE = t
+  VALUE_TYPE = ISO_TIME_RANGE
+END_VARIABLE = t)";
+    const auto result = load(header("", ranges)
+        + "!RECORDS= 1\n"
+          "2004-12-31T21:04:12Z/2005-01-01T03:00:00Z\n"
+          "2005-01-01T03:00:00Z/2005-01-01T09:00:00Z\nEND_DATA\n");
+    const auto& values = std::get<cpp_utils::containers::no_init_vector<std::int64_t>>(
+        result.file.variables[0].values);
+    REQUIRE(values.size() == 4);
+    CHECK(values[0] < values[1]);
+    CHECK(values[1] == values[2]);
+    CHECK(values[3] > values[2]);
+}

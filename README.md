@@ -1,22 +1,43 @@
+[![tests](https://github.com/SciQLop/CEFast/actions/workflows/tests.yml/badge.svg)](https://github.com/SciQLop/CEFast/actions/workflows/tests.yml)
+[![wheels](https://github.com/SciQLop/CEFast/actions/workflows/wheels.yml/badge.svg)](https://github.com/SciQLop/CEFast/actions/workflows/wheels.yml)
+[![PyPI](https://img.shields.io/pypi/v/cefast)](https://pypi.org/project/cefast/)
+[![Python versions](https://img.shields.io/pypi/pyversions/cefast)](https://pypi.org/project/cefast/)
+[![license](https://img.shields.io/badge/license-MIT-blue)](COPYING)
+
 <p align="center"><img src="docs/images/cefast_logo.png" alt="CEFast" width="600"></p>
 
 # CEFast
 
-CEF (Cluster Exchange Format) is the plain-text data format of ESA's Cluster Science Archive.
-CEFast reads it, from C++ or Python, fast and without surprises.
+A fast reader for CEF (Cluster Exchange Format), the text format of ESA's Cluster Science Archive.
+C++20 core, Python bindings, no dependencies beyond numpy.
 
-**Status:** working and tested against 41 real CSA files, not released yet. Wheels are built for
-Linux, macOS and Windows; the Python API is stable enough to be used by [speasy](https://github.com/SciQLop/speasy).
+```sh
+pip install cefast
+```
 
 ```python
 import cefast
-
 f = cefast.load("C1_CP_FGM_SPIN__20010201_000000_20010202_000000_V140305.cef.gz")
-v = f["B_vec_xyz_gse__C1_CP_FGM_SPIN"]
-v.values            # numpy array, shape (records, 3)
-v.attributes["UNITS"]
-f["time_tags__C1_CP_FGM_SPIN"].values.dtype   # datetime64[ns]
+f["B_vec_xyz_gse__C1_CP_FGM_SPIN"].values      # (records, 3) float32
+f["time_tags__C1_CP_FGM_SPIN"].values.dtype    # datetime64[ns]
 ```
+
+## Why CEFast
+
+CEFLIB is the reference CEF reader, and it is hard to live with: source tarball only, no wheels,
+a global singleton, and no working byte variables. CEFast is
+installable with pip, free of global state, and readable by someone else.
+
+Correctness is checked, not claimed:
+
+- every CEF 2.0 construct the archive uses, checked against the specification, with the deviations
+  we accept listed in [docs/accepted-deviations.md](docs/accepted-deviations.md);
+- 41 real CSA files, every one CEFLIB can read compared value by value against CEFLIB 1.8.6,
+  plus hand-made files for malformed input;
+- the full suite runs under ASan and UBSan in CI, together with an allocation budget test for the
+  header path;
+- a malformed file raises a `ParseError` naming the file, the line and the record: it never returns
+  shifted columns or garbage.
 
 ## Install
 
@@ -24,7 +45,9 @@ f["time_tags__C1_CP_FGM_SPIN"].values.dtype   # datetime64[ns]
 pip install cefast
 ```
 
-numpy is the only dependency. Wheels cover CPython 3.10 and newer, including free-threaded builds.
+Wheels are built for Linux (x86_64, aarch64), macOS 13+ (x86_64, arm64) and Windows (x64,
+ARM64), for CPython 3.10 and newer, including free-threaded builds. A Pyodide (wasm32) wheel is
+built too. Elsewhere, `pip install` builds from the sdist with a C++20 compiler and meson.
 
 ## Loading
 
@@ -34,9 +57,9 @@ cefast.load("file.cef.gz")         # gzip, detected from the content
 cefast.load(data)                  # bytes, bytearray or memoryview
 ```
 
-Loading releases the GIL. Files are memory-mapped when a path is given and borrowed when bytes are
-passed, and the returned arrays are views on that memory: they stay valid as long as the `CEF`
-object and its variables live.
+Loading releases the GIL. A path is memory-mapped, or read when the platform has no mmap, and bytes
+are borrowed: the returned arrays are views on that memory, valid as long as the `CEF` object and
+its variables live.
 
 ## Variables
 

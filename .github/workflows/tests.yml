@@ -5,12 +5,15 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.12"
       - name: Install build tools
@@ -18,7 +21,7 @@ jobs:
       # The CSA sample corpus is not in the repository: it is downloaded from the archive and
       # verified against tests/resources/csa_manifest.json, so the manifest is the cache key.
       - name: Restore the CSA corpus
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: tests/resources/csa
           key: csa-corpus-${{ hashFiles('tests/resources/csa_manifest.json') }}
@@ -38,14 +41,14 @@ jobs:
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
       ASAN_OPTIONS: halt_on_error=1:print_summary=1
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.12"
       - name: Install build tools
         run: pip install meson ninja
       - name: Restore the CSA corpus
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: tests/resources/csa
           key: csa-corpus-${{ hashFiles('tests/resources/csa_manifest.json') }}

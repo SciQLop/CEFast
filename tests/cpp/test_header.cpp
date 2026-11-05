@@ -35,15 +35,88 @@ struct allocation_scope
     void stop() { count_allocations = false; }
     [[nodiscard]] std::size_t count() const { return allocation_count; }
 };
+
+// malloc for every form of new, free for every form of delete: mixing our replacement with the
+// sanitiser's intercepted nothrow/aligned forms is an alloc-dealloc-mismatch under ASan.
+void* test_allocation(std::size_t size, std::size_t alignment = 0)
+{
+    if (count_allocations)
+        ++allocation_count;
+    void* block = alignment == 0
+        ? std::malloc(size == 0 ? 1 : size)
+        : std::aligned_alloc(alignment, (size + alignment - 1) / alignment * alignment);
+    if (block == nullptr)
+        throw std::bad_alloc { };
+    return block;
+}
 }
 
 void* operator new(std::size_t size)
 {
-    if (count_allocations)
-        ++allocation_count;
-    if (void* block = std::malloc(size == 0 ? 1 : size))
-        return block;
-    throw std::bad_alloc { };
+    return test_allocation(size);
+}
+
+void* operator new[](std::size_t size)
+{
+    return test_allocation(size);
+}
+
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept
+{
+    try
+    {
+        return test_allocation(size);
+    }
+    catch (...)
+    {
+        return nullptr;
+    }
+}
+
+void* operator new[](std::size_t size, const std::nothrow_t&) noexcept
+{
+    try
+    {
+        return test_allocation(size);
+    }
+    catch (...)
+    {
+        return nullptr;
+    }
+}
+
+void* operator new(std::size_t size, std::align_val_t alignment)
+{
+    return test_allocation(size, static_cast<std::size_t>(alignment));
+}
+
+void* operator new[](std::size_t size, std::align_val_t alignment)
+{
+    return test_allocation(size, static_cast<std::size_t>(alignment));
+}
+
+void* operator new(std::size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept
+{
+    try
+    {
+        return test_allocation(size, static_cast<std::size_t>(alignment));
+    }
+    catch (...)
+    {
+        return nullptr;
+    }
+}
+
+void* operator new[](std::size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept
+{
+    try
+    {
+        return test_allocation(size, static_cast<std::size_t>(alignment));
+    }
+    catch (...)
+    {
+        return nullptr;
+    }
 }
 
 void operator delete(void* block) noexcept
@@ -51,7 +124,47 @@ void operator delete(void* block) noexcept
     std::free(block);
 }
 
+void operator delete[](void* block) noexcept
+{
+    std::free(block);
+}
+
+void operator delete(void* block, const std::nothrow_t&) noexcept
+{
+    std::free(block);
+}
+
+void operator delete[](void* block, const std::nothrow_t&) noexcept
+{
+    std::free(block);
+}
+
 void operator delete(void* block, std::size_t) noexcept
+{
+    std::free(block);
+}
+
+void operator delete[](void* block, std::size_t) noexcept
+{
+    std::free(block);
+}
+
+void operator delete(void* block, std::align_val_t) noexcept
+{
+    std::free(block);
+}
+
+void operator delete[](void* block, std::align_val_t) noexcept
+{
+    std::free(block);
+}
+
+void operator delete(void* block, std::size_t, std::align_val_t) noexcept
+{
+    std::free(block);
+}
+
+void operator delete[](void* block, std::size_t, std::align_val_t) noexcept
 {
     std::free(block);
 }

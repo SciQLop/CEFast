@@ -195,7 +195,7 @@ namespace detail
     // A single quoted token such as "64, 6, 32" is one value in the lexer but several dimensions
     // (common in CSA headers, not in the spec).
     [[nodiscard]] inline std::vector<std::size_t> parse_sizes(
-        const std::vector<token>& values, std::string_view source, std::size_t line)
+        std::span<const token> values, std::string_view source, std::size_t line)
     {
         std::vector<std::string_view> pieces;
         if (values.size() == 1 && values.front().quoted)
@@ -276,11 +276,19 @@ namespace detail
         return read_whole_file(given);
     }
 
+    // Owns the text and the lexed views of every included file: header_line only holds views, so
+    // the buffer an INCLUDE was read into has to outlive the lines spliced from it.
+    struct include_arena
+    {
+        std::deque<std::string> texts;
+        std::deque<lexed_header> headers;
+    };
+
     // Included lines are spliced in place, so an INCLUDE inside a metadata block keeps extending
     // that block. Included files are reported by the name written in the INCLUDE line.
     inline void expand_includes(std::vector<header_line>& lines,
         const std::vector<header_line>& source_lines, const input_buffer& input,
-        const load_options& options, std::size_t depth)
+        const load_options& options, std::size_t depth, include_arena& arena)
     {
         for (const auto& line : source_lines)
         {
@@ -293,13 +301,15 @@ namespace detail
                 throw parse_error(*line.source, line.line, "INCLUDE needs a file name");
             const auto name = line.values.front().text;
             if (depth >= max_include_depth)
-                throw parse_error(
-                    *line.source, line.line, "INCLUDE nesting too deep (cycle?): " + name);
+                throw parse_error(*line.source, line.line,
+                    "INCLUDE nesting too deep (cycle?): " + std::string { name });
             const auto text = resolve_include(name, input, options);
             if (!text)
-                throw parse_error(*line.source, line.line, "INCLUDE file not found: " + name);
-            const auto included = lex_header(*text, name, false);
-            expand_includes(lines, included.lines, input, options, depth + 1);
+                throw parse_error(
+                    *line.source, line.line, "INCLUDE file not found: " + std::string { name });
+            arena.texts.push_back(std::move(*text));
+            arena.headers.emplace_back(lex_header(arena.texts.back(), name, false));
+            expand_includes(lines, arena.headers.back().lines, input, options, depth + 1, arena);
         }
     }
 }
@@ -447,7 +457,7 @@ namespace detail
         if (line.values.empty())
             throw parse_error(source_of(line), line.line, "START_META needs a name");
         state = block::meta;
-        meta = attribute { line.values.front().text, { } };
+        meta = attribute { std::string { line.values.front().text }, { } };
         meta_value_type.reset();
     }
 
@@ -458,7 +468,7 @@ namespace detail
         for (const auto& value : line.values)
             meta.entries.push_back(meta_value_type
                     ? convert_entry(value.text, *meta_value_type, source_of(line), line.line)
-                    : scalar { value.text });
+                    : scalar { std::string { value.text } });
     }
 
     inline void parser_state::end_meta(const header_line& line)
@@ -492,7 +502,7 @@ namespace detail
             throw parse_error(source_of(line), line.line, "START_VARIABLE needs a name");
         state = block::variable;
         var = variable { };
-        var.name = line.values.front().text;
+        var.name = std::string { line.values.front().text };
         pending_data.clear();
         data_source.reset();
         data_line = line.line;
@@ -510,7 +520,7 @@ namespace detail
         if (state != block::variable)
             throw parse_error(source_of(line), line.line, "DATA outside a variable block");
         var.is_nrv = true;
-        pending_data = line.values;
+        pending_data.assign(line.values.begin(), line.values.end());
         data_source = line.source;
         data_line = line.line;
     }
@@ -555,7 +565,7 @@ namespace detail
     {
         if (line.values.empty())
             throw parse_error(source_of(line), line.line, "END_OF_RECORD_MARKER needs a value");
-        result.record_marker = line.values.front().text;
+        result.record_marker = std::string { line.values.front().text };
     }
 
     inline void parser_state::set_data_until(const header_line& line)
@@ -577,9 +587,9 @@ namespace detail
 
     inline void parser_state::handle_attribute(const header_line& line)
     {
-        attribute attr { line.key, { } };
+        attribute attr { std::string { line.key }, { } };
         for (const auto& value : line.values)
-            attr.entries.push_back(scalar { value.text });
+            attr.entries.push_back(scalar { std::string { value.text } });
 
         if (state == block::variable)
         {
@@ -588,8 +598,8 @@ namespace detail
             return;
         }
         if (state == block::meta)
-            throw parse_error(
-                source_of(line), line.line, "unexpected " + line.key + " inside a metadata block");
+            throw parse_error(source_of(line), line.line,
+                "unexpected " + std::string { line.key } + " inside a metadata block");
         result.file.globals.push_back(std::move(attr));
     }
 
@@ -615,8 +625,8 @@ namespace detail
             var.values = make_column(var.type);
             for (const auto& token : tokens)
                 if (!append_value(var.values, var.type, token.text, var.fillval_token))
-                    throw parse_error(
-                        where, line, "variable " + var.name + ": invalid value: " + token.text);
+                    throw parse_error(where, line,
+                        "variable " + var.name + ": invalid value: " + std::string { token.text });
         }
     }
 
@@ -636,7 +646,8 @@ inline schema parse_header(
     const lexed_header& header, const input_buffer& input, const load_options& options = { })
 {
     std::vector<header_line> lines;
-    detail::expand_includes(lines, header.lines, input, options, 0);
+    detail::include_arena arena;
+    detail::expand_includes(lines, header.lines, input, options, 0, arena);
 
     detail::parser_state state;
     for (const auto& line : lines)

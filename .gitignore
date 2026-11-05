@@ -8,3 +8,4 @@ subprojects/*
 *.py[cod]
 .cache/
 compile_commands.json
+tests/resources/csa/

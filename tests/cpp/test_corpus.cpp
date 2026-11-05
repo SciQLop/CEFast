@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -63,14 +65,44 @@ template <typename T>
     return std::get<std::vector<std::string>>(var.values);
 }
 
+// The CSA files are not in the repository: they are fetched with tools/fetch_csa_corpus.py.
+// A missing corpus is a skip (meson treats exit code 77 as skipped), never a failure.
+// _Exit, not exit: leaving a Catch2 test case through static destructors crashes the XML reporter.
+[[noreturn]] void skip_without_corpus()
+{
+    std::fputs(
+        "tests/resources/csa is empty: run `python -I tools/fetch_csa_corpus.py` from the "
+        "repository root to download the CSA sample corpus\n",
+        stderr);
+    std::_Exit(77);
+}
+
 [[nodiscard]] std::vector<fs::path> corpus_files()
 {
     std::vector<fs::path> files;
-    for (const auto& entry : fs::directory_iterator { corpus_dir() })
-        if (entry.path().extension() == ".cef")
-            files.push_back(entry.path());
+    if (fs::is_directory(corpus_dir()))
+        for (const auto& entry : fs::directory_iterator { corpus_dir() })
+            if (entry.path().extension() == ".cef")
+                files.push_back(entry.path());
+    if (files.empty())
+        skip_without_corpus();
     std::ranges::sort(files);
     return files;
+}
+
+// CSA republishes datasets with a new _Vxxxxxx version suffix, so tests find a file by its
+// "<DATASET>__" prefix, never by its full name.
+[[nodiscard]] fs::path corpus_file(std::string_view dataset)
+{
+    const std::string prefix = std::string { dataset } + "__";
+    for (const auto& path : corpus_files())
+        if (path.filename().string().starts_with(prefix))
+            return path;
+    std::fprintf(stderr,
+        "no %s__*.cef in tests/resources/csa: run `python -I "
+        "tools/fetch_csa_corpus.py`\n",
+        std::string { dataset }.c_str());
+    std::_Exit(77);
 }
 
 void require_same_scalar(const cefast::scalar& left, const cefast::scalar& right)
@@ -115,7 +147,7 @@ void require_same_column(const cefast::variable& left, const cefast::variable& r
 TEST_CASE("corpus: every CSA file loads, with the record count of its !RECORDS hint")
 {
     const auto files = corpus_files();
-    REQUIRE(files.size() == 41);
+    REQUIRE(files.size() >= 41); // one file per manifest entry
     for (const auto& path : files)
     {
         INFO(path.filename().string());
@@ -131,8 +163,7 @@ TEST_CASE("corpus: every CSA file loads, with the record count of its !RECORDS h
 
 TEST_CASE("corpus: WHI last record matches the file text")
 {
-    const auto file = cefast::load(
-        corpus_dir() / "C1_CP_WHI_ELECTRON_DENSITY__20020202_000000_20020202_120000_V100209.cef");
+    const auto file = cefast::load(corpus_file("C1_CP_WHI_ELECTRON_DENSITY"));
 
     const auto& time = variable_named(file, "time_tags__C1_CP_WHI_ELECTRON_DENSITY");
     REQUIRE(time.records == 24410);
@@ -151,8 +182,7 @@ TEST_CASE("corpus: WHI last record matches the file text")
 
 TEST_CASE("corpus: CODIF 3d_ions keeps its multidim C layout")
 {
-    const auto file = cefast::load(
-        corpus_dir() / "C1_CP_CIS-CODIF_HS_H1_CS__20020202_000000_20020202_003000_V151020.cef");
+    const auto file = cefast::load(corpus_file("C1_CP_CIS-CODIF_HS_H1_CS"));
 
     const auto& ions = variable_named(file, "3d_ions__C1_CP_CIS-CODIF_HS_H1_CS");
     REQUIRE(ions.records == 149);
@@ -174,8 +204,7 @@ TEST_CASE("corpus: CODIF 3d_ions keeps its multidim C layout")
 
 TEST_CASE("corpus: EFW L3 microsecond time tags keep their six digits")
 {
-    const auto file = cefast::load(
-        corpus_dir() / "C1_CP_EFW_L3_E__20050610_000000_20050610_002000_V220603.cef");
+    const auto file = cefast::load(corpus_file("C1_CP_EFW_L3_E"));
 
     const auto& time = variable_named(file, "time_tags__C1_CP_EFW_L3_E");
     REQUIRE(time.records == 300);
@@ -197,8 +226,7 @@ TEST_CASE("corpus: EFW L3 microsecond time tags keep their six digits")
 
 TEST_CASE("corpus: sub-millisecond time tags are not rounded away")
 {
-    const auto file
-        = cefast::load(corpus_dir() / "C3_CP_EDI_EGD__20050610_000000_20050610_002000_V220916.cef");
+    const auto file = cefast::load(corpus_file("C3_CP_EDI_EGD"));
     const auto& time = variable_named(file, "time_tags__C3_CP_EDI_EGD");
     REQUIRE(time.records == 13222);
     // 2005-06-10T00:19:53.107151Z
@@ -207,8 +235,7 @@ TEST_CASE("corpus: sub-millisecond time tags are not rounded away")
 
 TEST_CASE("corpus: an ISO_TIME_RANGE variable keeps both ends")
 {
-    const auto file = cefast::load(
-        corpus_dir() / "C3_CT_AUX_GRMB__20050101_000000_20050131_000000_V261005.cef");
+    const auto file = cefast::load(corpus_file("C3_CT_AUX_GRMB"));
 
     const auto& time = variable_named(file, "time_tags__C3_CT_AUX_GRMB");
     REQUIRE(time.type == cefast::value_type::ISO_TIME_RANGE);
@@ -223,8 +250,7 @@ TEST_CASE("corpus: an ISO_TIME_RANGE variable keeps both ends")
 
 TEST_CASE("corpus: a gzipped file loads exactly like its plain version")
 {
-    const auto plain
-        = read_file(corpus_dir() / "C1_CP_FGM_SPIN__20050610_000000_20050610_002000_V140305.cef");
+    const auto plain = read_file(corpus_file("C1_CP_FGM_SPIN"));
     const auto compressed = cefast::gzip(plain);
     REQUIRE(compressed.size() > 2);
     REQUIRE(static_cast<unsigned char>(compressed[0]) == 0x1f);

@@ -24,7 +24,7 @@ f["time_tags__C1_CP_FGM_SPIN"].values.dtype   # datetime64[ns]
 pip install cefast
 ```
 
-numpy is the only dependency. Wheels cover CPython 3.10 to 3.15, including free-threaded builds.
+numpy is the only dependency. Wheels cover CPython 3.10 and newer, including free-threaded builds.
 
 ## Loading
 

@@ -30,6 +30,31 @@ namespace detail
     // zlib takes 32-bit counters; larger buffers are fed in chunks.
     constexpr std::size_t zlib_chunk = std::numeric_limits<uInt>::max();
 
+    // RFC 1952 stores the uncompressed size modulo 2^32 in the last four bytes of a member.
+    [[nodiscard]] inline std::size_t gzip_isize(std::span<const char> compressed)
+    {
+        if (compressed.size() < 4)
+            return 0;
+        const auto* trailer
+            = reinterpret_cast<const unsigned char*>(compressed.data() + compressed.size() - 4);
+        return static_cast<std::size_t>(trailer[0]) | (static_cast<std::size_t>(trailer[1]) << 8)
+            | (static_cast<std::size_t>(trailer[2]) << 16)
+            | (static_cast<std::size_t>(trailer[3]) << 24);
+    }
+
+    // CEF text compresses between 3x and 80x, so the trailer is a much better first guess than a
+    // fixed factor. A corrupt or absurd trailer (or trailing padding hiding the real member) falls
+    // back to 4x, which the doubling loop then grows.
+    [[nodiscard]] inline std::size_t initial_output_size(std::span<const char> compressed)
+    {
+        constexpr std::size_t minimum = 4096;
+        constexpr std::size_t maximum_ratio = 512;
+        const auto isize = gzip_isize(compressed);
+        if (isize >= compressed.size() && isize <= compressed.size() * maximum_ratio)
+            return isize;
+        return std::max(compressed.size() * 4, minimum);
+    }
+
     inline bool all_zero(const void* data, std::size_t size)
     {
         if (size == 0)
@@ -73,7 +98,7 @@ namespace detail
         throw std::runtime_error("cefast: zlib inflateInit2 failed");
     const detail::inflate_guard guard { &stream };
 
-    std::string output(std::max<std::size_t>(compressed.size() * 4, 4096), '\0');
+    std::string output(detail::initial_output_size(compressed), '\0');
     std::size_t produced = 0;
     std::size_t consumed = 0;
 
@@ -114,6 +139,10 @@ namespace detail
             throw parse_error(source, 0, "corrupt or truncated gzip data");
     }
     output.resize(produced);
+    // Only pay for the copy when the growth loop overshot by more than 25%, never on the common
+    // single-member file where the trailer gave the exact size.
+    if (output.capacity() > produced * 5 / 4)
+        output.shrink_to_fit();
     return output;
 }
 }

@@ -136,7 +136,7 @@ void require_same_column(const cefast::variable& left, const cefast::variable& r
 TEST_CASE("a mapped file equals the same bytes in memory", "[input]")
 {
     const auto path = std::filesystem::path { std::string { CEFAST_TEST_RESOURCES } } / "csa"
-        / "C1_CP_FGM_SPIN__20050610_000000_20050610_002000_V140305.cef";
+        / "C1_CP_CIS-CODIF_HS_H1_CS__20020202_000000_20020202_003000_V151020.cef";
     REQUIRE(std::filesystem::exists(path));
     const auto text = read_bytes(path);
 
@@ -172,4 +172,24 @@ TEST_CASE("in-memory input is borrowed, not copied", "[input]")
     const auto input = read_input(as_span(plain_text));
     CHECK(input.text.data() == plain_text.data());
     CHECK(input.text.size() == plain_text.size());
+}
+
+TEST_CASE("gunzip_capacity_close_to_size", "[input]")
+{
+    // The gzip trailer carries the uncompressed size: use it instead of guessing, otherwise the
+    // parse walks (and later shrinks) a buffer up to twice the file.
+    const auto corpus = std::filesystem::path { CEFAST_TEST_RESOURCES } / "csa"
+        / "C1_CP_CIS-CODIF_HS_H1_CS__20020202_000000_20020202_003000_V151020.cef";
+    const auto plain = read_bytes(corpus);
+    REQUIRE(plain.size() > 100000);
+
+    // Text like this compresses ~40x, so guessing 4x the compressed size and doubling lands on
+    // a buffer almost twice the file.
+    const auto compressed = gzip(plain);
+    REQUIRE(compressed.size() < plain.size() / 8);
+
+    const auto out = gunzip(as_span(compressed), "corpus.cef.gz");
+    REQUIRE(out.size() == plain.size());
+    REQUIRE(out == plain);
+    REQUIRE(out.capacity() <= out.size() * 5 / 4);
 }

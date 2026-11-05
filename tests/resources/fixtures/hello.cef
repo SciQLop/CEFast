@@ -1,0 +1,5 @@
+! fixture used by tests/cpp/test_input.cpp
+FILE_FORMAT_VERSION = "CEF-2.0"
+DATA_UNTIL = END_DATA
+1970-01-01T00:00:00Z, 1, 2, 3
+END_DATA

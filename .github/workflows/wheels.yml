@@ -6,16 +6,22 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   build_sdist:
     name: Build source distribution
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build sdist
         run: pipx run build --sdist
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: cibw-sdist
           path: dist/*.tar.gz
@@ -23,6 +29,9 @@ jobs:
   build_wheels:
     name: ${{ matrix.os }} ${{ matrix.CIBW_ARCHS }} wheels
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      actions: write
     strategy:
       matrix:
         include:
@@ -69,9 +78,9 @@ jobs:
         setup-args="-Db_vscrt=mt"
         setup-args="-Dcpp_link_args=['ucrt.lib','vcruntime.lib','/nodefaultlib:libucrt.lib','/nodefaultlib:libvcruntime.lib']"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: ccache
-        uses: hendrikmuhs/ccache-action@v1.2
+        uses: hendrikmuhs/ccache-action@5ebbd400eff9e74630f759d94ddd7b6c26299639 # v1.2
         with:
           key: ${{ github.job }}-${{ matrix.os }}-${{ matrix.CIBW_ARCHS }}
           max-size: "5G"
@@ -79,8 +88,8 @@ jobs:
       # [tool.cibuildwheel] in pyproject.toml): import cefast, load a small inline CEF file from
       # bytes, gzip bytes and a path. The CSA corpus is never needed.
       - name: Build wheels
-        uses: pypa/cibuildwheel@v4.3.5
-      - uses: actions/upload-artifact@v7
+        uses: pypa/cibuildwheel@f9b966cfadf4109556cadc5bb39ddb72d0ce664e # v4.3.5
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: cibw-wheels-${{ matrix.os }}-${{ matrix.CIBW_ARCHS }}
           path: ./wheelhouse/*.whl
@@ -93,15 +102,18 @@ jobs:
       name: pypi
       url: https://pypi.org/p/cefast
     permissions:
+      # id-token is what trusted publishing uses; the two reads are all this job needs.
       id-token: write
+      contents: read
+      actions: read
     if: github.event_name == 'release' && github.event.action == 'published' && github.repository_owner == 'SciQLop'
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: cibw-*
           path: dist
           merge-multiple: true
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
         with:
           skip-existing: true

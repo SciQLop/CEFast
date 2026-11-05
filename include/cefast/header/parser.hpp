@@ -22,6 +22,7 @@
 #include <cefast/input.hpp>
 #include <cefast/model.hpp>
 #include <cefast/time.hpp>
+#include <cefast/values.hpp>
 
 namespace cefast
 {
@@ -390,6 +391,7 @@ namespace detail
         void set_record_marker(const header_line& line);
         void set_data_until(const header_line& line);
         void remember_fillval(const header_line& line);
+        void fill_nrv_columns();
 
         schema result;
         block state = block::none;
@@ -398,6 +400,9 @@ namespace detail
         std::vector<token> pending_data;
         std::optional<value_type> meta_value_type;
         std::shared_ptr<const std::string> last_source;
+        std::shared_ptr<const std::string> data_source;
+        std::size_t data_line = 0;
+        std::vector<std::pair<std::shared_ptr<const std::string>, std::size_t>> nrv_locations;
     };
 
     inline void parser_state::handle(const header_line& line)
@@ -489,6 +494,8 @@ namespace detail
         var = variable { };
         var.name = line.values.front().text;
         pending_data.clear();
+        data_source.reset();
+        data_line = line.line;
     }
 
     inline void parser_state::set_sizes(const header_line& line)
@@ -504,6 +511,8 @@ namespace detail
             throw parse_error(source_of(line), line.line, "DATA outside a variable block");
         var.is_nrv = true;
         pending_data = line.values;
+        data_source = line.source;
+        data_line = line.line;
     }
 
     inline void parser_state::end_variable(const header_line& line)
@@ -517,6 +526,7 @@ namespace detail
         const bool is_nrv = var.is_nrv;
         result.file.variables.push_back(std::move(var));
         result.nrv_data.push_back(is_nrv ? std::move(pending_data) : std::vector<token> { });
+        nrv_locations.emplace_back(data_source, data_line);
         state = block::none;
     }
 
@@ -583,6 +593,33 @@ namespace detail
         result.file.globals.push_back(std::move(attr));
     }
 
+    inline void parser_state::fill_nrv_columns()
+    {
+        for (std::size_t index = 0; index < result.file.variables.size(); ++index)
+        {
+            auto& var = result.file.variables[index];
+            if (!var.is_nrv)
+                continue;
+            std::size_t expected = 1;
+            for (const auto size : var.sizes)
+                expected *= size;
+            const auto& tokens = result.nrv_data[index];
+            const auto* source = nrv_locations[index].first.get();
+            const std::string_view where { source != nullptr ? *source : std::string_view { } };
+            const auto line = nrv_locations[index].second;
+            if (tokens.size() != expected)
+                throw parse_error(where, line,
+                    "variable " + var.name + ": expected " + std::to_string(expected)
+                        + " values, got " + std::to_string(tokens.size()));
+            var.records = 1;
+            var.values = make_column(var.type);
+            for (const auto& token : tokens)
+                if (!append_value(var.values, var.type, token.text, var.fillval_token))
+                    throw parse_error(
+                        where, line, "variable " + var.name + ": invalid value: " + token.text);
+        }
+    }
+
     inline void parser_state::finish(std::string_view input_source)
     {
         const auto source = last_source ? std::string_view { *last_source } : input_source;
@@ -590,6 +627,7 @@ namespace detail
             throw parse_error(source, 0, "unclosed START_META: " + meta.name);
         if (state == block::variable)
             throw parse_error(source, 0, "unclosed START_VARIABLE: " + var.name);
+        fill_nrv_columns();
         check_version(result.file, input_source);
     }
 }

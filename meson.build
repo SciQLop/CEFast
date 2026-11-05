@@ -22,7 +22,8 @@ headers = files(
         'include/cefast/model.hpp',
         'include/cefast/gzip.hpp',
         'include/cefast/input.hpp',
-        'include/cefast/time.hpp'
+        'include/cefast/time.hpp',
+        'include/cefast/values.hpp'
     ]
 )
 

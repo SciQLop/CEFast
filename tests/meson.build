@@ -21,3 +21,8 @@ test_header = executable('test_header', 'cpp/test_header.cpp',
     dependencies : [cefast_dep, catch2_dep],
     cpp_args : [test_defines])
 test('header', test_header, args : ['-o', 'header_out.xml', '-r', 'xml'])
+
+test_values = executable('test_values', 'cpp/test_values.cpp',
+    dependencies : [cefast_dep, catch2_dep],
+    cpp_args : [test_defines])
+test('values', test_values, args : ['-o', 'values_out.xml', '-r', 'xml'])

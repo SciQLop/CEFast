@@ -47,6 +47,10 @@ if get_option('python')
     subdir('cefast')
 endif
 
+if get_option('with_benchmarks')
+    subdir('tools/bench')
+endif
+
 if get_option('with_tests')
     subdir('tests')
 endif

@@ -13,6 +13,10 @@ zlib_dep = dependency('zlib', fallback : ['zlib', 'zlib_dep'])
 
 cefast_inc = include_directories('include')
 
+if get_option('python')
+    python3 = import('python').find_installation('python3')
+endif
+
 headers = files(
     [
         'include/cefast/cefast.hpp',
@@ -37,6 +41,11 @@ cefast_dep = declare_dependency(
 meson.override_dependency('cefast', cefast_dep)
 
 install_subdir('include/cefast', install_dir : get_option('includedir'))
+
+if get_option('python')
+    subdir('pycefast')
+    subdir('cefast')
+endif
 
 if get_option('with_tests')
     subdir('tests')

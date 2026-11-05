@@ -36,3 +36,12 @@ test_corpus = executable('test_corpus', 'cpp/test_corpus.cpp',
     dependencies : [cefast_dep, catch2_dep],
     cpp_args : [test_defines])
 test('corpus', test_corpus, args : ['-o', 'corpus_out.xml', '-r', 'xml'])
+
+if get_option('python')
+  python3 = import('python').find_installation('python3')
+  test('python', python3,
+      args : [files('python/test_cefast.py')],
+      env : ['PYTHONPATH=' + meson.project_build_root(),
+             'CEFAST_TEST_RESOURCES=' + test_resources],
+      depends : _cefast)
+endif

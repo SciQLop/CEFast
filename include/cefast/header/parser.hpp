@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <charconv>
 #include <cstdlib>
 #include <filesystem>
@@ -302,158 +303,307 @@ namespace detail
     }
 }
 
+namespace detail
+{
+    enum class keyword_family
+    {
+        meta,
+        variable,
+        value_type,
+        file_level,
+        attribute,
+        ignore
+    };
+
+    struct keyword_entry
+    {
+        std::string_view key;
+        keyword_family family;
+    };
+
+    // One table decides what is structural; every other key is an attribute of the current block.
+    constexpr std::array keyword_table { keyword_entry { "DATA", keyword_family::variable },
+        keyword_entry { "DATA_UNTIL", keyword_family::file_level },
+        keyword_entry { "END_META", keyword_family::meta },
+        keyword_entry { "END_OF_RECORD_MARKER", keyword_family::file_level },
+        keyword_entry { "END_VARIABLE", keyword_family::variable },
+        keyword_entry { "ENTRY", keyword_family::meta },
+        keyword_entry { "INCLUDE", keyword_family::ignore },
+        keyword_entry { "SIZES", keyword_family::variable },
+        keyword_entry { "START_META", keyword_family::meta },
+        keyword_entry { "START_VARIABLE", keyword_family::variable },
+        keyword_entry { "VALUE_TYPE", keyword_family::value_type } };
+
+    [[nodiscard]] constexpr keyword_family family_of(std::string_view key) noexcept
+    {
+        for (const auto& entry : keyword_table)
+            if (entry.key == key)
+                return entry.family;
+        return keyword_family::attribute;
+    }
+
+    [[nodiscard]] inline std::string_view source_of(const header_line& line) noexcept
+    {
+        return *line.source;
+    }
+
+    inline void check_version(const cef_file& file, std::string_view source)
+    {
+        const auto* version = find(file.globals, "FILE_FORMAT_VERSION");
+        if (version == nullptr || version->entries.empty())
+            throw parse_error(source, 0, "FILE_FORMAT_VERSION missing");
+        const auto& text = std::get<std::string>(version->entries.front());
+        if (text.rfind("CEF-2", 0) != 0)
+            throw parse_error(source, 0, "unsupported CEF version: " + text);
+    }
+
+    // Header keywords are handled one family at a time; each handler owns the few keys of its
+    // family and the state it needs, so no function has to know the whole grammar.
+    class parser_state
+    {
+    public:
+        void handle(const header_line& line);
+        void finish(std::string_view input_source);
+        [[nodiscard]] schema take_result() { return std::move(result); }
+
+    private:
+        enum class block
+        {
+            none,
+            meta,
+            variable
+        };
+
+        void handle_meta(const header_line& line);
+        void handle_variable(const header_line& line);
+        void handle_value_type(const header_line& line);
+        void handle_file_level(const header_line& line);
+        void handle_attribute(const header_line& line);
+
+        void start_meta(const header_line& line);
+        void add_meta_entry(const header_line& line);
+        void end_meta(const header_line& line);
+        void start_variable(const header_line& line);
+        void set_sizes(const header_line& line);
+        void set_data(const header_line& line);
+        void end_variable(const header_line& line);
+        void set_record_marker(const header_line& line);
+        void set_data_until(const header_line& line);
+        void remember_fillval(const header_line& line);
+
+        schema result;
+        block state = block::none;
+        attribute meta;
+        variable var;
+        std::vector<token> pending_data;
+        std::optional<value_type> meta_value_type;
+        std::shared_ptr<const std::string> last_source;
+    };
+
+    inline void parser_state::handle(const header_line& line)
+    {
+        last_source = line.source;
+        switch (family_of(line.key))
+        {
+            case keyword_family::meta:
+                handle_meta(line);
+                return;
+            case keyword_family::variable:
+                handle_variable(line);
+                return;
+            case keyword_family::value_type:
+                handle_value_type(line);
+                return;
+            case keyword_family::file_level:
+                handle_file_level(line);
+                return;
+            case keyword_family::attribute:
+                handle_attribute(line);
+                return;
+            case keyword_family::ignore:
+                return;
+        }
+    }
+
+    inline void parser_state::handle_meta(const header_line& line)
+    {
+        if (line.key == "START_META")
+            start_meta(line);
+        else if (line.key == "END_META")
+            end_meta(line);
+        else
+            add_meta_entry(line);
+    }
+
+    inline void parser_state::start_meta(const header_line& line)
+    {
+        if (state != block::none)
+            throw parse_error(source_of(line), line.line, "START_META inside an open block");
+        if (line.values.empty())
+            throw parse_error(source_of(line), line.line, "START_META needs a name");
+        state = block::meta;
+        meta = attribute { line.values.front().text, { } };
+        meta_value_type.reset();
+    }
+
+    inline void parser_state::add_meta_entry(const header_line& line)
+    {
+        if (state != block::meta)
+            throw parse_error(source_of(line), line.line, "ENTRY outside a metadata block");
+        for (const auto& value : line.values)
+            meta.entries.push_back(meta_value_type
+                    ? convert_entry(value.text, *meta_value_type, source_of(line), line.line)
+                    : scalar { value.text });
+    }
+
+    inline void parser_state::end_meta(const header_line& line)
+    {
+        if (state != block::meta)
+            throw parse_error(source_of(line), line.line, "END_META without START_META");
+        if (line.values.empty() || !equal_ignore_case(line.values.front().text, meta.name))
+            throw parse_error(source_of(line), line.line,
+                "END_META name does not match START_META: " + meta.name);
+        result.file.globals.push_back(std::move(meta));
+        state = block::none;
+    }
+
+    inline void parser_state::handle_variable(const header_line& line)
+    {
+        if (line.key == "START_VARIABLE")
+            start_variable(line);
+        else if (line.key == "END_VARIABLE")
+            end_variable(line);
+        else if (line.key == "SIZES")
+            set_sizes(line);
+        else
+            set_data(line);
+    }
+
+    inline void parser_state::start_variable(const header_line& line)
+    {
+        if (state != block::none)
+            throw parse_error(source_of(line), line.line, "START_VARIABLE inside an open block");
+        if (line.values.empty())
+            throw parse_error(source_of(line), line.line, "START_VARIABLE needs a name");
+        state = block::variable;
+        var = variable { };
+        var.name = line.values.front().text;
+        pending_data.clear();
+    }
+
+    inline void parser_state::set_sizes(const header_line& line)
+    {
+        if (state != block::variable)
+            throw parse_error(source_of(line), line.line, "SIZES outside a variable block");
+        var.sizes = parse_sizes(line.values, source_of(line), line.line);
+    }
+
+    inline void parser_state::set_data(const header_line& line)
+    {
+        if (state != block::variable)
+            throw parse_error(source_of(line), line.line, "DATA outside a variable block");
+        var.is_nrv = true;
+        pending_data = line.values;
+    }
+
+    inline void parser_state::end_variable(const header_line& line)
+    {
+        if (state != block::variable)
+            throw parse_error(source_of(line), line.line, "END_VARIABLE without START_VARIABLE");
+        if (line.values.empty() || line.values.front().text != var.name)
+            throw parse_error(source_of(line), line.line,
+                "END_VARIABLE name does not match START_VARIABLE: " + var.name);
+        type_fillval(var);
+        const bool is_nrv = var.is_nrv;
+        result.file.variables.push_back(std::move(var));
+        result.nrv_data.push_back(is_nrv ? std::move(pending_data) : std::vector<token> { });
+        state = block::none;
+    }
+
+    inline void parser_state::handle_value_type(const header_line& line)
+    {
+        if (line.values.empty())
+            throw parse_error(source_of(line), line.line, "VALUE_TYPE needs a value");
+        const auto type = parse_value_type(line.values.front().text, source_of(line), line.line);
+        if (state == block::meta)
+            meta_value_type = type;
+        else if (state == block::variable)
+            var.type = type;
+        else
+            throw parse_error(source_of(line), line.line, "VALUE_TYPE outside a block");
+    }
+
+    inline void parser_state::handle_file_level(const header_line& line)
+    {
+        if (line.key == "END_OF_RECORD_MARKER")
+            set_record_marker(line);
+        else
+            set_data_until(line);
+    }
+
+    inline void parser_state::set_record_marker(const header_line& line)
+    {
+        if (line.values.empty())
+            throw parse_error(source_of(line), line.line, "END_OF_RECORD_MARKER needs a value");
+        result.record_marker = line.values.front().text;
+    }
+
+    inline void parser_state::set_data_until(const header_line& line)
+    {
+        const std::string_view text = line.values.empty()
+            ? std::string_view { }
+            : std::string_view { line.values.front().text };
+        if (upper(text) == "EOF")
+            result.data_until.clear();
+        else
+            result.data_until = std::string { text };
+    }
+
+    inline void parser_state::remember_fillval(const header_line& line)
+    {
+        if (line.key == "FILLVAL" && !line.values.empty())
+            var.fillval_token = line.values.front().text;
+    }
+
+    inline void parser_state::handle_attribute(const header_line& line)
+    {
+        attribute attr { line.key, { } };
+        for (const auto& value : line.values)
+            attr.entries.push_back(scalar { value.text });
+
+        if (state == block::variable)
+        {
+            remember_fillval(line);
+            var.attrs.push_back(std::move(attr));
+            return;
+        }
+        if (state == block::meta)
+            throw parse_error(
+                source_of(line), line.line, "unexpected " + line.key + " inside a metadata block");
+        result.file.globals.push_back(std::move(attr));
+    }
+
+    inline void parser_state::finish(std::string_view input_source)
+    {
+        const auto source = last_source ? std::string_view { *last_source } : input_source;
+        if (state == block::meta)
+            throw parse_error(source, 0, "unclosed START_META: " + meta.name);
+        if (state == block::variable)
+            throw parse_error(source, 0, "unclosed START_VARIABLE: " + var.name);
+        check_version(result.file, input_source);
+    }
+}
+
 inline schema parse_header(
     const lexed_header& header, const input_buffer& input, const load_options& options = { })
 {
     std::vector<header_line> lines;
     detail::expand_includes(lines, header.lines, input, options, 0);
 
-    schema result;
-    enum class block
-    {
-        none,
-        meta,
-        variable
-    };
-    block state = block::none;
-    attribute meta;
-    variable var;
-    std::vector<token> pending_data;
-    std::optional<value_type> meta_value_type;
-    std::shared_ptr<const std::string> last_source;
-
+    detail::parser_state state;
     for (const auto& line : lines)
-    {
-        const auto& key = line.key;
-        const auto& source = *line.source;
-        last_source = line.source;
-
-        if (key == "START_META")
-        {
-            if (state != block::none)
-                throw parse_error(source, line.line, "START_META inside an open block");
-            if (line.values.empty())
-                throw parse_error(source, line.line, "START_META needs a name");
-            state = block::meta;
-            meta = attribute { line.values.front().text, { } };
-            meta_value_type.reset();
-        }
-        else if (key == "END_META")
-        {
-            if (state != block::meta)
-                throw parse_error(source, line.line, "END_META without START_META");
-            if (line.values.empty()
-                || !detail::equal_ignore_case(line.values.front().text, meta.name))
-                throw parse_error(
-                    source, line.line, "END_META name does not match START_META: " + meta.name);
-            result.file.globals.push_back(std::move(meta));
-            state = block::none;
-        }
-        else if (key == "ENTRY")
-        {
-            if (state != block::meta)
-                throw parse_error(source, line.line, "ENTRY outside a metadata block");
-            for (const auto& value : line.values)
-                meta.entries.push_back(meta_value_type
-                        ? detail::convert_entry(value.text, *meta_value_type, source, line.line)
-                        : scalar { value.text });
-        }
-        else if (key == "VALUE_TYPE")
-        {
-            if (line.values.empty())
-                throw parse_error(source, line.line, "VALUE_TYPE needs a value");
-            const auto type = detail::parse_value_type(line.values.front().text, source, line.line);
-            if (state == block::meta)
-                meta_value_type = type;
-            else if (state == block::variable)
-                var.type = type;
-            else
-                throw parse_error(source, line.line, "VALUE_TYPE outside a block");
-        }
-        else if (key == "START_VARIABLE")
-        {
-            if (state != block::none)
-                throw parse_error(source, line.line, "START_VARIABLE inside an open block");
-            if (line.values.empty())
-                throw parse_error(source, line.line, "START_VARIABLE needs a name");
-            state = block::variable;
-            var = variable { };
-            var.name = line.values.front().text;
-            pending_data.clear();
-        }
-        else if (key == "END_VARIABLE")
-        {
-            if (state != block::variable)
-                throw parse_error(source, line.line, "END_VARIABLE without START_VARIABLE");
-            if (line.values.empty() || line.values.front().text != var.name)
-                throw parse_error(source, line.line,
-                    "END_VARIABLE name does not match START_VARIABLE: " + var.name);
-            detail::type_fillval(var);
-            const bool is_nrv = var.is_nrv;
-            result.file.variables.push_back(std::move(var));
-            result.nrv_data.push_back(is_nrv ? std::move(pending_data) : std::vector<token> { });
-            state = block::none;
-        }
-        else if (key == "SIZES")
-        {
-            if (state != block::variable)
-                throw parse_error(source, line.line, "SIZES outside a variable block");
-            var.sizes = detail::parse_sizes(line.values, source, line.line);
-        }
-        else if (key == "DATA")
-        {
-            if (state != block::variable)
-                throw parse_error(source, line.line, "DATA outside a variable block");
-            var.is_nrv = true;
-            pending_data = line.values;
-        }
-        else if (key == "END_OF_RECORD_MARKER")
-        {
-            if (line.values.empty())
-                throw parse_error(source, line.line, "END_OF_RECORD_MARKER needs a value");
-            result.record_marker = line.values.front().text;
-        }
-        else if (key == "DATA_UNTIL")
-        {
-            const std::string_view text = line.values.empty()
-                ? std::string_view { }
-                : std::string_view { line.values.front().text };
-            if (detail::upper(text) == "EOF")
-                result.data_until.clear();
-            else
-                result.data_until = std::string { text };
-        }
-        else
-        {
-            attribute attr { key, { } };
-            for (const auto& value : line.values)
-                attr.entries.push_back(scalar { value.text });
-            if (state == block::variable)
-            {
-                if (key == "FILLVAL" && !line.values.empty())
-                    var.fillval_token = line.values.front().text;
-                var.attrs.push_back(std::move(attr));
-            }
-            else if (state == block::meta)
-                throw parse_error(
-                    source, line.line, "unexpected " + key + " inside a metadata block");
-            else
-                result.file.globals.push_back(std::move(attr));
-        }
-    }
-
-    if (state == block::meta)
-        throw parse_error(*last_source, 0, "unclosed START_META: " + meta.name);
-    if (state == block::variable)
-        throw parse_error(*last_source, 0, "unclosed START_VARIABLE: " + var.name);
-
-    const auto* version = find(result.file.globals, "FILE_FORMAT_VERSION");
-    if (version == nullptr || version->entries.empty())
-        throw parse_error(input.source, 0, "FILE_FORMAT_VERSION missing");
-    const auto& text = std::get<std::string>(version->entries.front());
-    if (text.rfind("CEF-2", 0) != 0)
-        throw parse_error(input.source, 0, "unsupported CEF version: " + text);
-
-    return result;
+        state.handle(line);
+    state.finish(input.source);
+    return state.take_result();
 }
 }

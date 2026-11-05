@@ -1,0 +1,332 @@
+{
+  "files": [
+    {
+      "dataset_id": "C1_CP_CIS-CODIF_HS_H1_CS",
+      "start": "2002-02-02T00:00:00Z",
+      "stop": "2002-02-02T00:30:00Z",
+      "file_name_prefix": "C1_CP_CIS-CODIF_HS_H1_CS__20020202_000000_20020202_003000_",
+      "normalized_sha256": "b9936f140df805e91db7b5ee19b8d82f0a6ff0db83fe5a433fcd68f8c437c17a",
+      "bytes": 1787561
+    },
+    {
+      "dataset_id": "C1_CP_CIS-CODIF_HS_He2_PEF",
+      "start": "2002-02-02T00:00:00Z",
+      "stop": "2002-02-02T00:30:00Z",
+      "file_name_prefix": "C1_CP_CIS-CODIF_HS_He2_PEF__20020202_000000_20020202_003000_",
+      "normalized_sha256": "d8a32330e7b99daad0f7b3debc0034617d159801afd4b1ade74871f51db5cc76",
+      "bytes": 1316179
+    },
+    {
+      "dataset_id": "C1_CP_CIS-CODIF_LS_RATES",
+      "start": "2002-02-02T00:00:00Z",
+      "stop": "2002-02-02T06:00:00Z",
+      "file_name_prefix": "C1_CP_CIS-CODIF_LS_RATES__20020202_000000_20020202_060000_",
+      "normalized_sha256": "7499bd8acbe3b2c37d9bbfd96dfa3f4cf2ce0efd5930ae8389a05aa26a51d888",
+      "bytes": 21654
+    },
+    {
+      "dataset_id": "C1_CP_CIS-CODIF_RPA_H1_PF",
+      "start": "2002-02-02T00:00:00Z",
+      "stop": "2002-02-02T00:30:00Z",
+      "file_name_prefix": "C1_CP_CIS-CODIF_RPA_H1_PF__20020202_000000_20020202_003000_",
+      "normalized_sha256": "670eb9e50c2983ae825577a841875764b861cde6f6952f8da16e41f0c23a2b58",
+      "bytes": 19428
+    },
+    {
+      "dataset_id": "C1_CP_EDI_MP",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:10:00Z",
+      "file_name_prefix": "C1_CP_EDI_MP__20050610_000000_20050610_001000_",
+      "normalized_sha256": "f4d64a8138c03d05616fa9a7f3641e67b3ec30aad2c274908814114fc6f0b100",
+      "bytes": 95170
+    },
+    {
+      "dataset_id": "C1_CP_EFW_L3_E",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:20:00Z",
+      "file_name_prefix": "C1_CP_EFW_L3_E__20050610_000000_20050610_002000_",
+      "normalized_sha256": "64e8b3a0927ecb9bd468efb2ad21baa8135926f4b30b85ebcf2b9feb228abf6c",
+      "bytes": 47905
+    },
+    {
+      "dataset_id": "C1_CP_FGM_SPIN",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:20:00Z",
+      "file_name_prefix": "C1_CP_FGM_SPIN__20050610_000000_20050610_002000_",
+      "normalized_sha256": "06cc24c4496df3d8409afd2bd5fbad57361666fd2f9fbaaf37153e8d9c8cc5d7",
+      "bytes": 41662
+    },
+    {
+      "dataset_id": "C1_CP_PEA_3DXPH_DEFlux",
+      "start": "2001-10-01T00:00:00Z",
+      "stop": "2001-10-01T12:00:00Z",
+      "file_name_prefix": "C1_CP_PEA_3DXPH_DEFlux__20011001_000000_20011001_120000_",
+      "normalized_sha256": "c96843d1be12478f30864ee087bed2fdd42aad32718af466a5c9ddcc2eaa82ed",
+      "bytes": 42946
+    },
+    {
+      "dataset_id": "C1_CP_WHI_ELECTRON_DENSITY",
+      "start": "2002-02-02T00:00:00Z",
+      "stop": "2002-02-02T12:00:00Z",
+      "file_name_prefix": "C1_CP_WHI_ELECTRON_DENSITY__20020202_000000_20020202_120000_",
+      "normalized_sha256": "e5b67270185b2e72fbe9d5efadd049dad793d66c15aa19f9e00b24a4124971fd",
+      "bytes": 1963723
+    },
+    {
+      "dataset_id": "C1_CQ_WHI_CAVEATS",
+      "start": "2002-02-02T00:00:00Z",
+      "stop": "2002-02-02T12:00:00Z",
+      "file_name_prefix": "C1_CQ_WHI_CAVEATS__20020202_000000_20020202_120000_",
+      "normalized_sha256": "4c2419495f7e16c285e5ce53f87b620d74cd8266180bd6dcbbe8c3f6f4829dad",
+      "bytes": 13813
+    },
+    {
+      "dataset_id": "C1_CT_AUX_ESOC_GSU_LOG",
+      "start": "2005-01-01T00:00:00Z",
+      "stop": "2005-01-31T00:00:00Z",
+      "file_name_prefix": "C1_CT_AUX_ESOC_GSU_LOG__20050101_000000_20050131_000000_",
+      "normalized_sha256": "995180c353eb3daecb079b3342642db94f782b5f8a62526037e23557d8794bea",
+      "bytes": 12303
+    },
+    {
+      "dataset_id": "C1_JP_AUX_PMP",
+      "start": "2005-01-01T00:00:00Z",
+      "stop": "2005-01-31T00:00:00Z",
+      "file_name_prefix": "C1_JP_AUX_PMP__20050101_000000_20050131_000000_",
+      "normalized_sha256": "eee8f814d08dd20a4618f89e86391615350397ce29506b50804e53debd2a3fa5",
+      "bytes": 773654
+    },
+    {
+      "dataset_id": "C1_PP_DWP",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:20:00Z",
+      "file_name_prefix": "C1_PP_DWP__20050610_000000_20050610_002000_",
+      "normalized_sha256": "030b44e1880fe11d3de07e404b9f79a697e02d2f33922a6bf2707b077b21a280",
+      "bytes": 130299
+    },
+    {
+      "dataset_id": "C1_PP_EDI",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:20:00Z",
+      "file_name_prefix": "C1_PP_EDI__20050610_000000_20050610_002000_",
+      "normalized_sha256": "23471d5797f9eea710065269d74df463ba37376510f2f3654ee3e29056eb6126",
+      "bytes": 68040
+    },
+    {
+      "dataset_id": "C1_PP_FGM",
+      "start": "2001-06-06T00:00:00Z",
+      "stop": "2001-06-06T00:20:00Z",
+      "file_name_prefix": "C1_PP_FGM__20010606_000000_20010606_002000_",
+      "normalized_sha256": "b6e2159bebf55bf9ed1aeeb8d784fef4ce22843456fdda2b407feadb22370697",
+      "bytes": 54381
+    },
+    {
+      "dataset_id": "C1_PP_STA",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:20:00Z",
+      "file_name_prefix": "C1_PP_STA__20050610_000000_20050610_002000_",
+      "normalized_sha256": "6e255b3b0ee0b746825a3c2c9a75f89e0161a79eed5581489b928c939a58abef",
+      "bytes": 81689
+    },
+    {
+      "dataset_id": "C2_CP_PEA_PITCH_FIX_DEFlux",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:02:00Z",
+      "file_name_prefix": "C2_CP_PEA_PITCH_FIX_DEFlux__20050610_000000_20050610_000200_",
+      "normalized_sha256": "ec2814cd814fc986bc1126e04e29eeb143140a86f430e9da15769e8b0b3fbc27",
+      "bytes": 316572
+    },
+    {
+      "dataset_id": "C2_CQ_EFW_INST",
+      "start": "2005-01-01T00:00:00Z",
+      "stop": "2005-12-31T00:00:00Z",
+      "file_name_prefix": "C2_CQ_EFW_INST__20050101_000000_20051231_000000_",
+      "normalized_sha256": "17b483c52258fcb9541dd15463c0eece143f3cd0919f1a4e4ffe79b00a12036e",
+      "bytes": 21450
+    },
+    {
+      "dataset_id": "C2_PP_ASP",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:30:00Z",
+      "file_name_prefix": "C2_PP_ASP__20050610_000000_20050610_003000_",
+      "normalized_sha256": "460de8ae179c91672e4b3b11039bcf381469ad760bfc78b9efcec26f6a8aaa7e",
+      "bytes": 43077
+    },
+    {
+      "dataset_id": "C2_PP_FGM",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:20:00Z",
+      "file_name_prefix": "C2_PP_FGM__20050610_000000_20050610_002000_",
+      "normalized_sha256": "f8ca62ec6559d92c255b60dc9f7b7dccf3504d35e59978865e87c8b17f9ff31e",
+      "bytes": 52585
+    },
+    {
+      "dataset_id": "C3_CP_EDI_EGD",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:20:00Z",
+      "file_name_prefix": "C3_CP_EDI_EGD__20050610_000000_20050610_002000_",
+      "normalized_sha256": "cadec2aa48634bdcae9eb6ab786fb28882d4d7924a1c1589e603d12ffb2ed3ff",
+      "bytes": 780530
+    },
+    {
+      "dataset_id": "C3_CP_PEA_LERL_DEFlux",
+      "start": "2002-06-10T00:00:00Z",
+      "stop": "2002-06-10T00:10:00Z",
+      "file_name_prefix": "C3_CP_PEA_LERL_DEFlux__20020610_000000_20020610_001000_",
+      "normalized_sha256": "679752faf80419fbc24cd6e3c2a3e2212c7a14baa5d612210eb68dc11cc4eff2",
+      "bytes": 867144
+    },
+    {
+      "dataset_id": "C3_CP_RAP_DSETTINGS",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:05:00Z",
+      "file_name_prefix": "C3_CP_RAP_DSETTINGS__20050610_000000_20050610_000500_",
+      "normalized_sha256": "192352d1b678807b577e006ea76a711cc2ecc3aa1cb177c937baadef8e881fc0",
+      "bytes": 21332
+    },
+    {
+      "dataset_id": "C3_CP_RAP_PED_BM",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:05:00Z",
+      "file_name_prefix": "C3_CP_RAP_PED_BM__20050610_000000_20050610_000500_",
+      "normalized_sha256": "1d8f32ea8ab37bbbd76b7a1937d776dca8112135412cdb13c1799e9e08ae4b86",
+      "bytes": 18026
+    },
+    {
+      "dataset_id": "C3_CT_AUX_GRMB",
+      "start": "2005-01-01T00:00:00Z",
+      "stop": "2005-01-31T00:00:00Z",
+      "file_name_prefix": "C3_CT_AUX_GRMB__20050101_000000_20050131_000000_",
+      "normalized_sha256": "a2ad7f7acde5e32bf6166372270a0a127cb62bc23c96fbff9167416e914b24e3",
+      "bytes": 59296
+    },
+    {
+      "dataset_id": "C3_CT_WBD_COVERAGE2",
+      "start": "2005-01-01T00:00:00Z",
+      "stop": "2005-01-31T00:00:00Z",
+      "file_name_prefix": "C3_CT_WBD_COVERAGE2__20050101_000000_20050131_000000_",
+      "normalized_sha256": "e77c17eb2867e5c0db946865702832a3efe010db96a8c3fc7361fd41cd500e16",
+      "bytes": 22613
+    },
+    {
+      "dataset_id": "C3_PP_CIS",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:20:00Z",
+      "file_name_prefix": "C3_PP_CIS__20050610_000000_20050610_002000_",
+      "normalized_sha256": "42a65da985f08053a649e2787a53f8fa1c6d7e79940607559cd4e291db80ceb7",
+      "bytes": 84556
+    },
+    {
+      "dataset_id": "C4_CP_ASP_IONC",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:20:00Z",
+      "file_name_prefix": "C4_CP_ASP_IONC__20050610_000000_20050610_002000_",
+      "normalized_sha256": "6c40aaab218fd1841f8185298fbe6c4af6c40cc5e62153c647d3fe28dbda0cc0",
+      "bytes": 92093
+    },
+    {
+      "dataset_id": "C4_CP_AUX_ESOC_MEP",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T01:00:00Z",
+      "file_name_prefix": "C4_CP_AUX_ESOC_MEP__20050610_000000_20050610_010000_",
+      "normalized_sha256": "8e315a5afd166bad12a073ce32aea1ccb7f929e036770ed933d6389d48532700",
+      "bytes": 165130
+    },
+    {
+      "dataset_id": "C4_CP_WHI_ELECTRON_DENSITY",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:20:00Z",
+      "file_name_prefix": "C4_CP_WHI_ELECTRON_DENSITY__20050610_000000_20050610_002000_",
+      "normalized_sha256": "568d495004992c2da9db1a6e567b4ad826624f674a7da14fdf2cf9975f898123",
+      "bytes": 16787
+    },
+    {
+      "dataset_id": "C4_CQ_CIS-CODIF_CAVEATS",
+      "start": "2005-01-01T00:00:00Z",
+      "stop": "2005-12-31T00:00:00Z",
+      "file_name_prefix": "C4_CQ_CIS-CODIF_CAVEATS__20050101_000000_20051231_000000_",
+      "normalized_sha256": "e5b0916376cd79ec7173e3d0e0f4a459713ae2967c292eb14a39a21c89134b8b",
+      "bytes": 13269
+    },
+    {
+      "dataset_id": "CC_CP_AUX_MAARBLE_KIR_ULF_PC35",
+      "start": "2003-06-10T00:00:00Z",
+      "stop": "2003-06-10T06:00:00Z",
+      "file_name_prefix": "CC_CP_AUX_MAARBLE_KIR_ULF_PC35__20030610_000000_20030610_060000_",
+      "normalized_sha256": "6a566fa574a43245e64c53815029dab32abe9b744c75ca8de8707c7aaca5dc81",
+      "bytes": 250853
+    },
+    {
+      "dataset_id": "CL_SP_ASP",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T02:00:00Z",
+      "file_name_prefix": "CL_SP_ASP__20050610_000000_20050610_020000_",
+      "normalized_sha256": "031528ad94ece27193fc128edba4765d543bc09d0fde582f2e30675befbd2c13",
+      "bytes": 24733
+    },
+    {
+      "dataset_id": "CL_SP_AUX",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T02:00:00Z",
+      "file_name_prefix": "CL_SP_AUX__20050610_000000_20050610_020000_",
+      "normalized_sha256": "add5bcbe38140592f68bcc587dd2dd118bf2f451a35ef1d17519b7bbefaeca07",
+      "bytes": 95170
+    },
+    {
+      "dataset_id": "CM_CP_FGM_UT_PIOR",
+      "start": "2003-06-10T00:00:00Z",
+      "stop": "2003-06-10T06:00:00Z",
+      "file_name_prefix": "CM_CP_FGM_UT_PIOR__20030610_000000_20030610_060000_",
+      "normalized_sha256": "8869ecfafa8c173fca6a493c97f51acc97a102c199f9ea7087b74dec6a6b71f6",
+      "bytes": 13958
+    },
+    {
+      "dataset_id": "D1_CP_PEA_3DXHAR_DEFlux",
+      "start": "2005-01-15T00:00:00Z",
+      "stop": "2005-01-15T23:59:00Z",
+      "file_name_prefix": "D1_CP_PEA_3DXHAR_DEFlux__20050115_000000_20050115_235900_",
+      "normalized_sha256": "85a4dfbf614d58d280e9481e953134b284a26e69ef50bfa8c94c2da4400ec78f",
+      "bytes": 38701
+    },
+    {
+      "dataset_id": "D1_JP_AUX_PMP",
+      "start": "2005-01-01T00:00:00Z",
+      "stop": "2005-01-31T00:00:00Z",
+      "file_name_prefix": "D1_JP_AUX_PMP__20050101_000000_20050131_000000_",
+      "normalized_sha256": "9b94f22df6b72b7901733df254c5473a7d8c3a5c9d7146d067c49c26e56f3d19",
+      "bytes": 747581
+    },
+    {
+      "dataset_id": "D1_PP_HIA",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:20:00Z",
+      "file_name_prefix": "D1_PP_HIA__20050610_000000_20050610_002000_",
+      "normalized_sha256": "04dcbb06d5f9e0e7eaf6bda414dbb7a41f4d3aadaaa3b8e109a07273947f33b2",
+      "bytes": 52814
+    },
+    {
+      "dataset_id": "D1_SP_AUX",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T02:00:00Z",
+      "file_name_prefix": "D1_SP_AUX__20050610_000000_20050610_020000_",
+      "normalized_sha256": "59c7616d882033705c50bfbd2bbdb29408102b7d2f550dcdfa45777eae908ee5",
+      "bytes": 36210
+    },
+    {
+      "dataset_id": "D1_SP_FGM",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T02:00:00Z",
+      "file_name_prefix": "D1_SP_FGM__20050610_000000_20050610_020000_",
+      "normalized_sha256": "9e488d3ec9913ccb500b668a93683b690883488cf517c5e69c901f2d8671268d",
+      "bytes": 29446
+    },
+    {
+      "dataset_id": "D2_CP_FGM_SPIN",
+      "start": "2005-06-10T00:00:00Z",
+      "stop": "2005-06-10T00:20:00Z",
+      "file_name_prefix": "D2_CP_FGM_SPIN__20050610_000000_20050610_002000_",
+      "normalized_sha256": "87d3d4074008e757baf0076356765da5974f0bd26bb2468554a7892e78e71f53",
+      "bytes": 43798
+    }
+  ]
+}

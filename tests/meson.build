@@ -35,7 +35,10 @@ test('records', test_records, args : ['-o', 'records_out.xml', '-r', 'xml'])
 test_corpus = executable('test_corpus', 'cpp/test_corpus.cpp',
     dependencies : [cefast_dep, catch2_dep],
     cpp_args : [test_defines])
-test('corpus', test_corpus, args : ['-o', 'corpus_out.xml', '-r', 'xml'])
+# The corpus test loads 41 files twice (default and byte-by-byte scan) plus a 34 MB synthetic file
+# twice; sanitizer builds are an order of magnitude slower than that, so the 30 s default is not
+# enough for them.
+test('corpus', test_corpus, args : ['-o', 'corpus_out.xml', '-r', 'xml'], timeout : 600)
 
 if get_option('python')
   python3 = import('python').find_installation('python3')

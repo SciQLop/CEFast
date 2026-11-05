@@ -1,0 +1,33 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tools
+        run: pip install meson ninja numpy meson-python
+      # The CSA sample corpus is not in the repository: it is downloaded from the archive and
+      # verified against tests/resources/csa_manifest.json, so the manifest is the cache key.
+      - name: Restore the CSA corpus
+        uses: actions/cache@v4
+        with:
+          path: tests/resources/csa
+          key: csa-corpus-${{ hashFiles('tests/resources/csa_manifest.json') }}
+      - name: Download the CSA corpus
+        run: python -I tools/fetch_csa_corpus.py
+      - name: Configure
+        run: meson setup build
+      - name: Test
+        run: meson test -C build --print-errorlogs
+      - name: Test log
+        if: failure()
+        run: cat build/meson-logs/testlog.txt

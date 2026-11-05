@@ -29,28 +29,39 @@ jobs:
           - os: ubuntu-latest
             CIBW_ENVIRONMENT: ''
             CIBW_ARCHS: "x86_64"
+            CIBW_PLATFORM: "auto"
+          - os: ubuntu-latest
+            CIBW_ENVIRONMENT: ''
+            CIBW_ARCHS: "wasm32"
+            CIBW_PLATFORM: "pyodide"
           - os: ubuntu-24.04-arm
             CIBW_ENVIRONMENT: ''
             CIBW_ARCHS: "aarch64"
+            CIBW_PLATFORM: "auto"
           - os: windows-latest
             CIBW_ENVIRONMENT: ''
             CIBW_ARCHS: "AMD64"
+            CIBW_PLATFORM: "auto"
           - os: windows-11-arm
             CIBW_ENVIRONMENT: ''
             CIBW_ARCHS: "ARM64"
+            CIBW_PLATFORM: "auto"
           - os: macos-15-intel
             CIBW_ENVIRONMENT: >
               MACOSX_DEPLOYMENT_TARGET='13.0'
             CIBW_ARCHS: "x86_64"
+            CIBW_PLATFORM: "auto"
           - os: macos-latest # Apple Silicon
             CIBW_ENVIRONMENT: >
               MACOSX_DEPLOYMENT_TARGET='13.0'
             CIBW_ARCHS: "arm64"
+            CIBW_PLATFORM: "auto"
     env:
       CIBW_ENVIRONMENT: ${{ matrix.CIBW_ENVIRONMENT }}
       # Windows on ARM has native CPython builds from 3.11 only
       CIBW_SKIP: "*-win32 *i686 cp310-win_arm64"
       CIBW_ARCHS: ${{ matrix.CIBW_ARCHS }}
+      CIBW_PLATFORM: ${{ matrix.CIBW_PLATFORM }}
       CIBW_ENVIRONMENT_LINUX: PATH=/usr/local/bin:/usr/lib/ccache:$PATH CCACHE_DIR=/host${{ github.workspace }}/.ccache CCACHE_CONFIGPATH=/host/home/runner/.config/ccache/ccache.conf
       # see https://github.com/matplotlib/matplotlib/pull/28687/files#diff-504e739c530d50b780e9a09ae8fd0c3ea8258ea7553be06afb06f03f95b1ee0aR103
       CIBW_CONFIG_SETTINGS_WINDOWS: >-

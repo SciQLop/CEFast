@@ -15,6 +15,7 @@ cefast_inc = include_directories('include')
 
 headers = files(
     [
+        'include/cefast/cefast.hpp',
         'include/cefast/data/records.hpp',
         'include/cefast/errors.hpp',
         'include/cefast/header/attributes.hpp',

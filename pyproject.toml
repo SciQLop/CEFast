@@ -6,7 +6,6 @@ build-backend = "mesonpy"
 name = "cefast"
 dynamic = ["version"]
 description = "Fast reader for ESA's Cluster Exchange Format (CEF 2.0)"
-summary = "A fast, pip-installable reader for ESA's Cluster Exchange Format (CEF 2.0)"
 authors = [{ name = "Alexis Jeandet", email = "alexis.jeandet@member.fsf.org" }]
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,7 +34,14 @@ homepage = "https://github.com/SciQLop/CEFast"
 repository = "https://github.com/SciQLop/CEFast"
 
 [tool.meson-python.args]
-setup = ["-Dwith_tests=false", "--force-fallback-for=pybind11"]
+setup = [
+    "-Dwith_tests=false",
+    "-Ddefault_library=static",
+    "--force-fallback-for=pybind11,zlib",
+]
+# Headers and pkg-config files of the vendored subprojects belong in an install prefix, not in a
+# wheel: only the extension module and the python sources are shipped.
+install = ["--tags=runtime,python-runtime"]
 
 [tool.cibuildwheel]
 build-frontend = "default"

@@ -5,10 +5,14 @@ Both timings are full parses: cefast.load() builds the whole in-memory file, CEF
 physically reads every record (then close() releases it, CEFLIB being a global singleton).
 Run with the venv on PATH and PYTHONPATH=<cefast build dir>:
 
-    python3 tools/ceflib/benchmark.py [--runs 5]
+    python3 tools/ceflib/benchmark.py [--runs 5] [--gzip]
+
+--gzip compresses each corpus file in memory (as CSA serves .cef.gz) and times
+cefast.load(bytes); CEFLIB has no in-memory entry point, so its column is n/a.
 """
 
 import argparse
+import gzip
 import os
 import pathlib
 import statistics
@@ -50,6 +54,11 @@ def load_ceflib(path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs", type=int, default=5)
+    parser.add_argument(
+        "--gzip",
+        action="store_true",
+        help="gzip each file in memory and time load(bytes); CEFLIB column is n/a",
+    )
     arguments = parser.parse_args()
 
     files = sorted(CORPUS.glob("*.cef"))
@@ -57,6 +66,12 @@ def main():
     ours_all, theirs_all, ratios = [], [], []
     for path in files:
         megabytes = path.stat().st_size / 1048576
+        if arguments.gzip:
+            payload = gzip.compress(path.read_bytes())
+            ours = median_time(lambda: cefast.load(payload), arguments.runs) * 1000
+            ours_all.append(ours)
+            print(f"{path.name:60} {megabytes:6.2f} {ours:10.2f} {'n/a':>10}")
+            continue
         ours = median_time(lambda: cefast.load(path), arguments.runs) * 1000
         try:
             theirs = median_time(lambda: load_ceflib(path), arguments.runs) * 1000
@@ -74,6 +89,9 @@ def main():
     print(
         f"total load time: cefast {sum(ours_all):.1f} ms, CEFLIB {sum(theirs_all):.1f} ms"
     )
+    if arguments.gzip:
+        print(f"total gzipped load time: cefast {sum(ours_all):.1f} ms, CEFLIB n/a")
+        return
     print(
         f"per-file speedup: median {statistics.median(ratios):.2f}x, "
         f"min {min(ratios):.2f}x, max {max(ratios):.2f}x"

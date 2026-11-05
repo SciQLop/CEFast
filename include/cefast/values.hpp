@@ -24,9 +24,30 @@ namespace detail
         return result.ec == std::errc { } && result.ptr == token.data() + token.size();
     }
 
+    // Up to four decimal digits fit an unsigned value that is exact in float and double, and CSA
+    // writes most samples as short integers, so this skips fast_float entirely. Longer tokens take
+    // the one size compare and go to fast_float.
+    template <typename T>
+    [[nodiscard]] inline bool parse_small_integer(std::string_view token, T& value) noexcept
+    {
+        if (token.empty() || token.size() > 4)
+            return false;
+        std::uint32_t integer = 0;
+        for (const char digit : token)
+        {
+            if (digit < '0' || digit > '9')
+                return false;
+            integer = integer * 10 + static_cast<std::uint32_t>(digit - '0');
+        }
+        value = static_cast<T>(integer);
+        return true;
+    }
+
     template <typename T>
     [[nodiscard]] inline bool parse_float(std::string_view token, T& value) noexcept
     {
+        if (parse_small_integer(token, value))
+            return true;
         const auto result
             = fast_float::from_chars(token.data(), token.data() + token.size(), value);
         return result.ec == std::errc { } && result.ptr == token.data() + token.size();

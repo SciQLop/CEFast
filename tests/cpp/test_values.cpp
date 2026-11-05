@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -183,4 +184,41 @@ TEST_CASE("values: NRV scalar keeps its single element", "[values]")
               result.file.variables[0].values)
               .size()
         == 1);
+}
+
+namespace
+{
+// fast_float is the reference: the integer shortcut must accept the same text and produce the
+// same number, or fall through.
+template <typename T>
+void require_same_parse(std::string_view text)
+{
+    T shortcut = 0;
+    T reference = 0;
+    const auto result = fast_float::from_chars(text.data(), text.data() + text.size(), reference);
+    const bool reference_ok = result.ec == std::errc { } && result.ptr == text.data() + text.size();
+    INFO(text);
+    REQUIRE(detail::parse_float(text, shortcut) == reference_ok);
+    // Bit patterns, not values: nan never equals itself.
+    if (reference_ok)
+        CHECK(std::memcmp(&shortcut, &reference, sizeof(T)) == 0);
+}
+}
+
+TEST_CASE("number parsing matches fast_float", "[values]")
+{
+    for (const auto* text : { "", "0", "00", "007", "40", "1", "9", "1234567", "12345678",
+             "123456789", "1234567890123456789", "-0", "-1", "+1", "1.", ".5", "1e3", "1E3",
+             "1e+3", "1e-3", " 1", "1 ", "0x10", "inf", "nan", "1,5", "05", "99999999",
+             "100000000", "-1e+31", "15462.2", "0.00239", "5e-324", "1.7976931348623157e308" })
+    {
+        require_same_parse<float>(text);
+        require_same_parse<double>(text);
+    }
+    for (std::uint32_t value = 0; value < 2000; ++value)
+    {
+        const std::string text = std::to_string(value);
+        require_same_parse<float>(text);
+        require_same_parse<double>(text);
+    }
 }

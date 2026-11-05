@@ -34,12 +34,13 @@
 **Files:**
 - Create: `include/cpp_utils/cpp_utils_python/numpy.hpp`
 - Create: `tests/python/cpp_utils_python_test_module.cpp`, `tests/python/test_numpy.py`
-- Modify: `meson.build` (headers list), `meson_options.txt` (`option('python', type: 'boolean', value: false)`), `tests/meson.build` (build module + `test('python_numpy', python3, ...)` with `env: ['PYTHONPATH=' + meson.current_build_dir()]`)
+- Create: `subprojects/pybind11.wrap` (copy CDFpp's)
+- Modify: `meson.build` (headers list), `meson_options.txt` (`option('python', type: 'boolean', value: false)`), `tests/meson.build`: when the option is on, `python3 = import('python').find_installation('python3', modules: ['numpy'])`, `pybind11_dep = dependency('pybind11')`, numpy include from `run_command(python3, '-c', 'import numpy; print(numpy.get_include())', check: true)`, build the module, `test('python_numpy', python3, ...)` with `env: ['PYTHONPATH=' + meson.current_build_dir()]`; the whole python block is skipped when the option is off.
 
 **Interfaces:**
 - Produces (namespace `cpp_utils::python`):
-  - `template <typename T, typename Shape> pybind11::array_t<T> fast_allocate_array(const Shape& shape)` — moved from `CDFpp/pycdfpp/collections.hpp` (`fast_allocate_array` overload with shape + optional owner), using `cpp_utils::containers::default_init_allocator`.
-  - `template <typename T> pybind11::array_t<T> view_with_owner(T* data, std::vector<ssize_t> shape, std::shared_ptr<const void> owner)` — zero-copy, writable, C-contiguous view; the array's base is a `py::capsule` holding a heap copy of `owner`, so the C++ data lives as long as any array viewing it.
+  - `template <typename T, typename Shape, typename Owner = std::nullptr_t> pybind11::array_t<T> fast_allocate_array(const Shape& shape, Owner&& owner = nullptr)` — moved as is from `CDFpp/pycdfpp/collections.hpp:132-154`, using `cpp_utils::containers::default_init_allocator`.
+  - **New code** (not in pycdfpp): `template <typename T> pybind11::array_t<T> view_with_owner(T* data, std::vector<ssize_t> shape, std::shared_ptr<const void> owner)` — zero-copy, writable, C-contiguous view; the array's base is a `py::capsule` holding a heap copy of `owner`, so the C++ data lives as long as any array viewing it.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -51,6 +52,7 @@ class TestNumpy(unittest.TestCase):
         a = m.make_iota(4, 3)
         self.assertEqual(a.shape, (4, 3)); self.assertEqual(a.dtype, np.float64)
         np.testing.assert_array_equal(a.ravel(), np.arange(12.0))
+        self.assertTrue(a.flags.writeable); a[0, 0] = 42.0; self.assertEqual(a[0, 0], 42.0)
     def test_array_outlives_producer(self):
         a = m.make_iota(1000, 3); gc.collect()
         self.assertEqual(a[-1, -1], 2999.0)

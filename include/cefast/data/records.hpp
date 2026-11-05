@@ -77,21 +77,23 @@ namespace detail
 
     // The terminator is the text starting a line (spec 2.3), not the whole line: "END_DATA ! end"
     // and trailing blanks both end the data section.
+    // CEF puts the terminator at the beginning of the last line of the file (§2.4: "the text
+    // starting the last line"), so scan from the end: a record whose text happens to contain the
+    // terminator is ignored, and the cost is independent of how large the data section is.
     [[nodiscard]] inline std::string_view cut_at_data_until(
         std::string_view data, std::string_view until)
     {
         if (until.empty())
             return data;
-        std::size_t start = 0;
-        while (start < data.size())
+        std::size_t line_end = data.size();
+        while (line_end > 0)
         {
-            const auto newline = data.find('\n', start);
-            const auto end = newline == std::string_view::npos ? data.size() : newline;
-            if (trim_left(data.substr(start, end - start)).starts_with(until))
+            std::size_t start = line_end;
+            while (start > 0 && data[start - 1] != '\n')
+                --start;
+            if (trim_left(data.substr(start, line_end - start)).starts_with(until))
                 return data.substr(0, start);
-            if (newline == std::string_view::npos)
-                break;
-            start = end + 1;
+            line_end = start == 0 ? 0 : start - 1;
         }
         return data;
     }

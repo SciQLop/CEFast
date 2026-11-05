@@ -385,3 +385,19 @@ END_VARIABLE = t)";
     CHECK(values[1] == values[2]);
     CHECK(values[3] > values[2]);
 }
+
+TEST_CASE("records: the terminator is the last matching line, not the first", "[records]")
+{
+    // CEF 2.0 puts DATA_UNTIL's text at the start of the last line (§2.4), so a value that happens
+    // to contain that text must not end the section early.
+    const auto result = load(header("\"$\"", one_char) + "\"END\nEND_DATA\nX\" $\nEND_DATA\n");
+    const auto& values = strings_of(result.file.variables[0]);
+    REQUIRE(values.size() == 1);
+    CHECK(values[0] == "END\nEND_DATA\nX");
+}
+
+TEST_CASE("records: a terminator followed by blank lines still cuts", "[records]")
+{
+    const auto result = load(header("", one_float) + "1.5\nEND_DATA  ! end\n\n  \n");
+    REQUIRE(result.file.variables[0].records == 1);
+}

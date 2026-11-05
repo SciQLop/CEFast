@@ -12,3 +12,7 @@ test_input = executable('test_input', 'cpp/test_input.cpp',
     dependencies : [cefast_dep, catch2_dep],
     cpp_args : [test_defines])
 test('input', test_input, args : ['-o', 'input_out.xml', '-r', 'xml'])
+
+test_lexer = executable('test_lexer', 'cpp/test_lexer.cpp',
+    dependencies : [cefast_dep, catch2_dep])
+test('lexer', test_lexer, args : ['-o', 'lexer_out.xml', '-r', 'xml'])

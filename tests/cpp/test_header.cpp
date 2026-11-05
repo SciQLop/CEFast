@@ -10,6 +10,10 @@
 #include <string>
 #include <vector>
 
+#if defined(_MSC_VER)
+#include <malloc.h>
+#endif
+
 #include <cefast/header/parser.hpp>
 #include <cefast/input.hpp>
 
@@ -38,16 +42,43 @@ struct allocation_scope
 
 // malloc for every form of new, free for every form of delete: mixing our replacement with the
 // sanitiser's intercepted nothrow/aligned forms is an alloc-dealloc-mismatch under ASan.
-void* test_allocation(std::size_t size, std::size_t alignment = 0)
+void note_allocation()
 {
     if (count_allocations)
         ++allocation_count;
-    void* block = alignment == 0
-        ? std::malloc(size == 0 ? 1 : size)
-        : std::aligned_alloc(alignment, (size + alignment - 1) / alignment * alignment);
+}
+
+void* test_allocation(std::size_t size)
+{
+    note_allocation();
+    void* block = std::malloc(size == 0 ? 1 : size);
     if (block == nullptr)
         throw std::bad_alloc { };
     return block;
+}
+
+// MSVC has no std::aligned_alloc, and an _aligned_malloc block must go back to _aligned_free,
+// never to free: pairing the two here keeps every replaced form's release matching.
+void* test_aligned_allocation(std::size_t size, std::size_t alignment)
+{
+    note_allocation();
+#if defined(_MSC_VER)
+    void* block = _aligned_malloc(size == 0 ? 1 : size, alignment);
+#else
+    void* block = std::aligned_alloc(alignment, (size + alignment - 1) / alignment * alignment);
+#endif
+    if (block == nullptr)
+        throw std::bad_alloc { };
+    return block;
+}
+
+void test_aligned_free(void* block) noexcept
+{
+#if defined(_MSC_VER)
+    _aligned_free(block);
+#else
+    std::free(block);
+#endif
 }
 }
 
@@ -87,19 +118,19 @@ void* operator new[](std::size_t size, const std::nothrow_t&) noexcept
 
 void* operator new(std::size_t size, std::align_val_t alignment)
 {
-    return test_allocation(size, static_cast<std::size_t>(alignment));
+    return test_aligned_allocation(size, static_cast<std::size_t>(alignment));
 }
 
 void* operator new[](std::size_t size, std::align_val_t alignment)
 {
-    return test_allocation(size, static_cast<std::size_t>(alignment));
+    return test_aligned_allocation(size, static_cast<std::size_t>(alignment));
 }
 
 void* operator new(std::size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept
 {
     try
     {
-        return test_allocation(size, static_cast<std::size_t>(alignment));
+        return test_aligned_allocation(size, static_cast<std::size_t>(alignment));
     }
     catch (...)
     {
@@ -111,7 +142,7 @@ void* operator new[](std::size_t size, std::align_val_t alignment, const std::no
 {
     try
     {
-        return test_allocation(size, static_cast<std::size_t>(alignment));
+        return test_aligned_allocation(size, static_cast<std::size_t>(alignment));
     }
     catch (...)
     {
@@ -151,22 +182,22 @@ void operator delete[](void* block, std::size_t) noexcept
 
 void operator delete(void* block, std::align_val_t) noexcept
 {
-    std::free(block);
+    test_aligned_free(block);
 }
 
 void operator delete[](void* block, std::align_val_t) noexcept
 {
-    std::free(block);
+    test_aligned_free(block);
 }
 
 void operator delete(void* block, std::size_t, std::align_val_t) noexcept
 {
-    std::free(block);
+    test_aligned_free(block);
 }
 
 void operator delete[](void* block, std::size_t, std::align_val_t) noexcept
 {
-    std::free(block);
+    test_aligned_free(block);
 }
 
 namespace

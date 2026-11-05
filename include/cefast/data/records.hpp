@@ -91,10 +91,18 @@ namespace detail
         return data;
     }
 
+    // One slot per value of one record, in record order: the column it belongs to, its type and the
+    // variable's fill token. Built once, so every value is appended straight from the input text.
+    struct slot
+    {
+        column* values;
+        value_type type;
+        std::string_view fillval;
+    };
+
     // One pass over the data text: quoted tokens are consumed whole (so separators, markers and '!'
-    // inside them are data), everything else is delimited by ',' and by the record marker.
-    // An unquoted value may not touch any other token: whitespace, a separator or the record
-    // marker ends it (CEFLIB facts Q4). Anything else is a missing separator.
+    // inside them are data), unquoted ones are [start, end) ranges of the input, appended to their
+    // column as soon as they end. Nothing per value is allocated except a CHAR's own string.
     enum class scan_state
     {
         at_value_start,
@@ -113,27 +121,25 @@ namespace detail
                 , source { source }
                 , marker { result.record_marker }
         {
-            for (std::size_t index = 0; index < result.file.variables.size(); ++index)
+            for (auto& var : result.file.variables)
             {
-                if (result.file.variables[index].is_nrv)
+                if (var.is_nrv)
                     continue;
-                varying.push_back(index);
-                expected += element_count(result.file.variables[index]);
-            }
-            const auto hint = records_hint(data);
-            for (const auto index : varying)
-            {
-                auto& var = result.file.variables[index];
+                varying.push_back(&var);
+                const auto count = element_count(var);
+                const auto hint = records_hint(data);
                 var.values = make_column(var.type);
                 if (hint != 0)
-                    std::visit([&](auto& values) { values.reserve(hint * element_count(var)); },
-                        var.values);
+                    std::visit([&](auto& values) { values.reserve(hint * count); }, var.values);
+                for (std::size_t element = 0; element < count; ++element)
+                    slots.push_back({ &var.values, var.type, var.fillval_token });
             }
         }
 
         void run()
         {
             std::size_t position = 0;
+            std::size_t token_start = 0;
             while (position < data.size())
             {
                 const char c = data[position];
@@ -144,20 +150,21 @@ namespace detail
                     const auto close = data.find('"', position + 1);
                     if (close == std::string_view::npos)
                         throw parse_error(source, line, "unterminated quote");
-                    emit(data.substr(position + 1, close - position - 1), true);
+                    add(data.substr(position + 1, close - position - 1), true);
                     state = scan_state::after_value;
                     position = close + 1;
                     continue;
                 }
                 if (c == '!')
                 {
+                    close_unquoted(position, token_start);
                     const auto newline = data.find('\n', position);
                     position = newline == std::string_view::npos ? data.size() : newline;
                     continue;
                 }
                 if (!marker.empty() && data.compare(position, marker.size(), marker) == 0)
                 {
-                    close_unquoted();
+                    close_unquoted(position, token_start);
                     if (marker == "\n")
                         ++line;
                     end_record();
@@ -167,95 +174,84 @@ namespace detail
                 if (c == ',')
                 {
                     if (state == scan_state::at_value_start)
-                        emit(text, false);
-                    else
-                        close_unquoted();
-                    text.clear();
+                        throw parse_error(source, line, "empty field", records + 1);
+                    close_unquoted(position, token_start);
                     state = scan_state::at_value_start;
                     ++position;
                     continue;
                 }
                 if (c == '\n')
                 {
-                    close_unquoted();
+                    close_unquoted(position, token_start);
                     ++line;
                     ++position;
                     continue;
                 }
                 if (is_space(c))
                 {
-                    close_unquoted();
+                    close_unquoted(position, token_start);
                     ++position;
                     continue;
                 }
                 if (state == scan_state::after_value)
                     throw parse_error(source, line, "missing separator", records + 1);
-                text.push_back(c);
+                if (state == scan_state::at_value_start)
+                    token_start = position;
                 state = scan_state::in_unquoted;
                 ++position;
             }
-            close_unquoted();
-            if (!tokens.empty())
+            close_unquoted(data.size(), token_start);
+            if (index != 0 || surplus != 0)
                 end_record();
-            for (const auto index : varying)
-                result.file.variables[index].records = records;
+            for (auto* var : varying)
+                var->records = records;
         }
 
     private:
-        void emit(std::string_view value, bool quoted)
+        void add(std::string_view value, bool quoted)
         {
-            if (tokens.empty())
+            if (index == 0 && surplus == 0)
                 record_line = line;
-            if (!quoted && value.empty())
-                throw parse_error(source, line, "empty field", records + 1);
-            tokens.push_back({ std::string { value }, quoted });
+            if (index == slots.size())
+            {
+                // Past the slot table: the record is too long. Count it (so the message stays
+                // exact) but do not parse or store it, and never write past the columns.
+                ++surplus;
+                return;
+            }
+            const auto& target = slots[index];
+            if (!append_value(*target.values, target.type, value, target.fillval))
+                throw parse_error(source, record_line,
+                    "invalid " + std::string { type_name(target.type) }
+                        + " value: " + std::string { value },
+                    records + 1);
+            ++index;
         }
 
-        void close_unquoted()
+        void close_unquoted(std::size_t end, std::size_t token_start)
         {
             if (state != scan_state::in_unquoted)
                 return;
-            emit(text, false);
-            text.clear();
+            add(data.substr(token_start, end - token_start), false);
             state = scan_state::after_value;
         }
 
         void end_record()
         {
-            if (!text.empty())
+            if (index == 0 && surplus == 0)
             {
-                emit(text, false);
-                text.clear();
+                state = scan_state::at_value_start;
+                return;
             }
-            if (!tokens.empty())
-            {
-                if (tokens.size() != expected)
-                    throw parse_error(source, record_line,
-                        "expected " + std::to_string(expected) + " values, got "
-                            + std::to_string(tokens.size()),
-                        records + 1);
-                assign();
-            }
-            tokens.clear();
-            state = scan_state::at_value_start;
-        }
-
-        void assign()
-        {
-            std::size_t position = 0;
-            for (const auto index : varying)
-            {
-                auto& var = result.file.variables[index];
-                const auto count = element_count(var);
-                for (std::size_t element = 0; element < count; ++element, ++position)
-                    if (!append_value(
-                            var.values, var.type, tokens[position].text, var.fillval_token))
-                        throw parse_error(source, record_line,
-                            "invalid " + std::string { type_name(var.type) }
-                                + " value: " + tokens[position].text,
-                            records + 1);
-            }
+            if (index != slots.size() || surplus != 0)
+                throw parse_error(source, record_line,
+                    "expected " + std::to_string(slots.size()) + " values, got "
+                        + std::to_string(index + surplus),
+                    records + 1);
             ++records;
+            index = 0;
+            surplus = 0;
+            state = scan_state::at_value_start;
         }
 
         schema& result;
@@ -263,12 +259,12 @@ namespace detail
         std::size_t line;
         std::string_view source;
         std::string_view marker;
-        std::vector<std::size_t> varying;
-        std::size_t expected = 0;
+        std::vector<variable*> varying;
+        std::vector<slot> slots;
+        std::size_t index = 0;
+        std::size_t surplus = 0;
         std::size_t records = 0;
         std::size_t record_line = 0;
-        std::vector<token> tokens;
-        std::string text;
         scan_state state = scan_state::at_value_start;
     };
 }

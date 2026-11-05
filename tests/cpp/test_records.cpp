@@ -251,3 +251,43 @@ TEST_CASE("records: unquoted CHAR text is kept, quotes are optional", "[records]
     REQUIRE(parsed.file.variables[0].records == 1);
     CHECK(std::get<std::vector<std::string>>(parsed.file.variables[0].values)[0] == "abc");
 }
+
+TEST_CASE("records: a much too long record stops at the first extra value", "[records]")
+{
+    // The slot table is full after three values: the fourth is an error right there, not after
+    // collecting (and storing) 30 of them.
+    try
+    {
+        load(header("", three_ints)
+            + "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29\n"
+              "END_DATA\n");
+        FAIL("expected parse_error");
+    }
+    catch (const parse_error& error)
+    {
+        CHECK(std::string { error.what() }.find("expected 3 values, got 30") != std::string::npos);
+    }
+}
+
+TEST_CASE("records: an empty quoted CHAR is a value, not an error", "[records]")
+{
+    const auto parsed = load(header("\"$\"", one_char) + "\"\" $\nEND_DATA\n");
+    REQUIRE(parsed.file.variables[0].records == 1);
+    CHECK(std::get<std::vector<std::string>>(parsed.file.variables[0].values)[0].empty());
+}
+
+TEST_CASE("records: values past the slot table are counted, not parsed", "[records]")
+{
+    // "nope" would be an invalid INT if anything tried to store it; the record is simply too long.
+    try
+    {
+        load(header("", three_ints) + "1,2,3,nope\nEND_DATA\n");
+        FAIL("expected parse_error");
+    }
+    catch (const parse_error& error)
+    {
+        const std::string message { error.what() };
+        CHECK(message.find("expected 3 values, got 4") != std::string::npos);
+        CHECK(message.find("invalid") == std::string::npos);
+    }
+}

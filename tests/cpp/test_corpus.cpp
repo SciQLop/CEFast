@@ -428,3 +428,39 @@ TEST_CASE("corpus: a parallel parse reports the first error in file order")
     CHECK(parallel_error == serial_error);
     CHECK(serial_error.find("x8.031") != std::string::npos);
 }
+
+namespace
+{
+// Puts the general ISO 8601 path back for the lifetime of the guard.
+struct general_time_path
+{
+    general_time_path() { cefast::detail::fixed_time_path() = false; }
+    ~general_time_path() { cefast::detail::fixed_time_path() = true; }
+    general_time_path(const general_time_path&) = delete;
+    general_time_path& operator=(const general_time_path&) = delete;
+};
+}
+
+TEST_CASE("corpus: the fixed-width time fast path matches the general path", "[corpus]")
+{
+    for (const auto& path : corpus_files())
+    {
+        INFO(path.filename().string());
+        const auto fast = cefast::load(path);
+        cefast::cef_file general;
+        {
+            const general_time_path guard;
+            general = cefast::load(path);
+        }
+        REQUIRE(fast.variables.size() == general.variables.size());
+        for (std::size_t index = 0; index < fast.variables.size(); ++index)
+        {
+            INFO(fast.variables[index].name);
+            const auto& left = fast.variables[index];
+            const auto& right = general.variables[index];
+            REQUIRE(left.name == right.name);
+            REQUIRE(left.records == right.records);
+            require_same_column(left, right);
+        }
+    }
+}

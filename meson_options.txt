@@ -1,0 +1,2 @@
+option('with_tests', type : 'boolean', value : true, description : 'Build tests')
+option('python', type : 'boolean', value : true, description : 'Build the cefast Python module')

@@ -93,6 +93,15 @@ namespace detail
 
     // One pass over the data text: quoted tokens are consumed whole (so separators, markers and '!'
     // inside them are data), everything else is delimited by ',' and by the record marker.
+    // An unquoted value may not touch any other token: whitespace, a separator or the record
+    // marker ends it (CEFLIB facts Q4). Anything else is a missing separator.
+    enum class scan_state
+    {
+        at_value_start,
+        in_unquoted,
+        after_value
+    };
+
     class record_scanner
     {
     public:
@@ -130,11 +139,13 @@ namespace detail
                 const char c = data[position];
                 if (c == '"')
                 {
+                    if (state != scan_state::at_value_start)
+                        throw parse_error(source, line, "missing separator", records + 1);
                     const auto close = data.find('"', position + 1);
                     if (close == std::string_view::npos)
                         throw parse_error(source, line, "unterminated quote");
                     emit(data.substr(position + 1, close - position - 1), true);
-                    after_value = true;
+                    state = scan_state::after_value;
                     position = close + 1;
                     continue;
                 }
@@ -146,6 +157,7 @@ namespace detail
                 }
                 if (!marker.empty() && data.compare(position, marker.size(), marker) == 0)
                 {
+                    close_unquoted();
                     if (marker == "\n")
                         ++line;
                     end_record();
@@ -154,27 +166,36 @@ namespace detail
                 }
                 if (c == ',')
                 {
-                    if (!after_value)
+                    if (state == scan_state::at_value_start)
                         emit(text, false);
+                    else
+                        close_unquoted();
                     text.clear();
-                    after_value = false;
+                    state = scan_state::at_value_start;
                     ++position;
                     continue;
                 }
                 if (c == '\n')
                 {
+                    close_unquoted();
                     ++line;
                     ++position;
                     continue;
                 }
-                if (!is_space(c))
+                if (is_space(c))
                 {
-                    text.push_back(c);
-                    after_value = false;
+                    close_unquoted();
+                    ++position;
+                    continue;
                 }
+                if (state == scan_state::after_value)
+                    throw parse_error(source, line, "missing separator", records + 1);
+                text.push_back(c);
+                state = scan_state::in_unquoted;
                 ++position;
             }
-            if (!text.empty() || !tokens.empty())
+            close_unquoted();
+            if (!tokens.empty())
                 end_record();
             for (const auto index : varying)
                 result.file.variables[index].records = records;
@@ -188,6 +209,15 @@ namespace detail
             if (!quoted && value.empty())
                 throw parse_error(source, line, "empty field", records + 1);
             tokens.push_back({ std::string { value }, quoted });
+        }
+
+        void close_unquoted()
+        {
+            if (state != scan_state::in_unquoted)
+                return;
+            emit(text, false);
+            text.clear();
+            state = scan_state::after_value;
         }
 
         void end_record()
@@ -207,6 +237,7 @@ namespace detail
                 assign();
             }
             tokens.clear();
+            state = scan_state::at_value_start;
         }
 
         void assign()
@@ -238,7 +269,7 @@ namespace detail
         std::size_t record_line = 0;
         std::vector<token> tokens;
         std::string text;
-        bool after_value = false;
+        scan_state state = scan_state::at_value_start;
     };
 }
 

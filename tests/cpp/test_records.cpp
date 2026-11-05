@@ -198,3 +198,48 @@ END_VARIABLE = b)")
     CHECK(std::get<std::vector<std::string>>(result.file.variables[1].values)[0] == "B");
     CHECK(result.file.variables[0].records == 1);
 }
+
+namespace
+{
+void check_missing_separator(const std::string& text)
+{
+    try
+    {
+        load(text);
+        FAIL("whitespace or a second token was accepted inside one value");
+    }
+    catch (const parse_error& error)
+    {
+        const std::string message { error.what() };
+        CHECK(message.find("missing separator") != std::string::npos);
+        CHECK(message.find("record 1") != std::string::npos);
+    }
+}
+
+constexpr std::string_view three_ints = R"(START_VARIABLE = i
+  VALUE_TYPE = INT
+  SIZES = 3
+END_VARIABLE = i)";
+
+constexpr std::string_view one_char = R"(START_VARIABLE = c
+  VALUE_TYPE = CHAR
+END_VARIABLE = c)";
+}
+
+TEST_CASE("records: a missing comma cannot merge two values", "[records]")
+{
+    // Merging "1 2" into "12" would give exactly the three expected values, so only the
+    // separator rule can catch it.
+    check_missing_separator(header("", three_ints) + "1 2,3,4\nEND_DATA\n");
+    CHECK(load(header("", three_ints) + "1,2,3\nEND_DATA\n").file.variables[0].records == 1);
+}
+
+TEST_CASE("records: text after a quoted value raises", "[records]")
+{
+    check_missing_separator(header("\"$\"", one_char) + "\"a\"b $\nEND_DATA\n");
+}
+
+TEST_CASE("records: a quote after unquoted text raises", "[records]")
+{
+    check_missing_separator(header("\"$\"", one_char) + "a\"b\" $\nEND_DATA\n");
+}

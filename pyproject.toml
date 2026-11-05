@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Fast reader for ESA's Cluster Exchange Format (CEF 2.0)"
 readme = "docs/superpowers/specs/2026-11-05-cefast-design.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { file = "COPYING" }
 dependencies = ["numpy"]
 
 [tool.meson-python.args]

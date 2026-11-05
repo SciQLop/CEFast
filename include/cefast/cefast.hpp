@@ -16,10 +16,9 @@ namespace detail
     [[nodiscard]] inline cef_file parse_input(
         const input_buffer& input, const load_options& options)
     {
-        const auto lexed = lex_header(input.bytes, input.source);
+        const auto lexed = lex_header(input.text, input.source);
         auto schema = parse_header(lexed, input, options);
-        parse_records(schema, std::string_view { input.bytes }.substr(lexed.data_offset),
-            lexed.data_line, input.source);
+        parse_records(schema, input.text.substr(lexed.data_offset), lexed.data_line, input.source);
         return std::move(schema.file);
     }
 }

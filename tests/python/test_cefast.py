@@ -67,6 +67,24 @@ class TestLoad(unittest.TestCase):
         # Two blocks with the same name come from the two .ceh files: the dict keeps the last.
         self.assertEqual(loaded.attributes["MISSION_REGION"], "Cusp")
 
+    def test_bytearray_locked_during_parse(self):
+        # The parse borrows the caller's buffer, so it must stay exported for the whole load.
+        original = (FIXTURES / "include" / "main.cef").read_bytes()
+        buffer = bytearray(original)
+        files = {
+            "common.ceh": (FIXTURES / "include" / "common.ceh").read_bytes(),
+            "nested.ceh": (FIXTURES / "include" / "nested.ceh").read_bytes(),
+        }
+
+        def resolver(name):
+            with self.assertRaises(BufferError):
+                buffer.extend(b"x")
+            return files[name]
+
+        loaded = cefast.load(buffer, include_resolver=resolver)
+        self.assertEqual(loaded.attributes["MISSION"], "Cluster")
+        self.assertEqual(bytes(buffer), original)
+
     def test_missing_key(self):
         loaded = cefast.load(FGM)
         self.assertNotIn("nope", loaded)

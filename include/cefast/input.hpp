@@ -1,6 +1,8 @@
 #pragma once
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <optional>
 #include <span>
 #include <string>
@@ -26,6 +28,15 @@ namespace detail
     {
         std::error_code error;
         return std::filesystem::exists(path, error) && !std::filesystem::is_directory(path, error);
+    }
+
+    template <typename Fail>
+    [[nodiscard]] inline std::string read_file(const std::filesystem::path& path, Fail&& fail)
+    {
+        std::ifstream stream { path, std::ios::binary };
+        if (!stream)
+            throw fail();
+        return { std::istreambuf_iterator<char> { stream }, std::istreambuf_iterator<char> { } };
     }
 }
 
@@ -122,8 +133,15 @@ private:
         return input_buffer { std::string { }, source, path.parent_path() };
 
     auto mapping = cpp_utils::io::memory_mapped_file { source };
+    // WebAssembly has no mmap: fall back to reading the file, which is what a Pyodide user has
+    // anyway (the bytes are already in the browser's in-memory filesystem).
     if (!mapping.is_valid())
-        throw fail();
+    {
+        auto text = detail::read_file(path, fail);
+        if (!detail::is_gzip(std::span<const char> { text }))
+            return input_buffer { std::move(text), source, path.parent_path() };
+        return input_buffer { gunzip(text, source), source, path.parent_path() };
+    }
 
     const std::span<const char> mapped { mapping.data(), mapping.size() };
     if (!detail::is_gzip(mapped))

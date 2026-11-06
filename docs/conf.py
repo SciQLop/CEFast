@@ -47,6 +47,10 @@ language = 'en'
 html_theme = 'furo'
 html_title = f'CEFast {version}'
 html_logo = 'images/cefast_logo.png'
+html_static_path = ['_static']
+# A Run button on every Python example: Pyodide, loaded on the first click (see playground.js).
+html_css_files = ['playground.css']
+html_js_files = ['playground.js']
 html_theme_options = {
     'source_repository': 'https://github.com/SciQLop/CEFast/',
     'source_branch': 'main',

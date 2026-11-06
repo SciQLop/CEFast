@@ -128,6 +128,7 @@ Loading releases the GIL, so a thread pool reads many files in parallel. Pass ``
 then, so each file does not also start its own threads:
 
 .. code-block:: python
+    :class: no-playground
 
     from concurrent.futures import ThreadPoolExecutor
 
@@ -151,9 +152,8 @@ per pitch angle (``DEPEND_1``) and energy (``DEPEND_2``):
     flux = peace["Data__C2_CP_PEA_PITCH_FIX_DEFlux"]
     print(flux.values.shape)   # (records, 12 pitch angles, 100 energies)
 
-    values = with_nan(flux)
-    values[values <= 0] = np.nan
-    spectrum = np.nanmean(values, axis=1)           # average over pitch angles
+    # Average over pitch angles, skipping fill values; a bin with no data stays empty.
+    spectrum = np.ma.masked_invalid(with_nan(flux)).mean(axis=1)
     time = peace[flux.attributes["DEPEND_0"]].values
     energy = peace[flux.attributes["DEPEND_2"]].values
 

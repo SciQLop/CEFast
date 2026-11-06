@@ -548,3 +548,160 @@ TEST_CASE("corpus: the fixed-width time fast path matches the general path", "[c
         }
     }
 }
+
+namespace
+{
+// A file whose data section is exactly `data`, with `marker` as the record marker. The tests below
+// place markers inside quotes and comments at the byte offsets a speculative split cuts at.
+[[nodiscard]] std::string file_with_data(
+    std::string_view marker, std::string_view variable, std::string_view data)
+{
+    std::string text { "FILE_FORMAT_VERSION = \"CEF-2.0\"\nEND_OF_RECORD_MARKER = " };
+    text += marker;
+    text += '\n';
+    text += variable;
+    text += "\nDATA_UNTIL = END_DATA\n";
+    text += data;
+    text += "END_DATA\n";
+    return text;
+}
+
+constexpr std::string_view one_float_variable = R"(START_VARIABLE = v
+  VALUE_TYPE = FLOAT
+END_VARIABLE = v)";
+
+constexpr std::string_view one_char_variable = R"(START_VARIABLE = c
+  VALUE_TYPE = CHAR
+END_VARIABLE = c)";
+
+// Loads `text` serially and with four threads, requires the two results to agree on every column
+// and returns the parallel one.
+[[nodiscard]] cefast::cef_file require_parallel_matches_serial(std::string_view text)
+{
+    const auto serial = load_text_with_threads(text, 1);
+    auto parallel = load_text_with_threads(text, 4);
+    REQUIRE(serial.variables.size() == parallel.variables.size());
+    for (std::size_t index = 0; index < serial.variables.size(); ++index)
+    {
+        INFO(serial.variables[index].name);
+        require_same_column(serial.variables[index], parallel.variables[index]);
+    }
+    return parallel;
+}
+}
+
+// A quoted CHAR value holds markers, so the raw text search finds one at every cut offset and the
+// chunk that ends there stops inside an unterminated quote. The value also spans lines, so the
+// quote a chunk starts in is not closed anywhere in that chunk. Verification must reject the
+// speculative chunks and fall back to the serial scanner.
+TEST_CASE("corpus: a cut inside a quoted value falls back")
+{
+    std::string inner;
+    for (std::size_t unit = 0; unit < 4096; ++unit)
+        inner += "0123456789abcde$\n";
+    // Body = 69636 bytes: the cuts at size/4, size/2 and 3*size/4 (17409, 34818, 52227) are all
+    // inside the quote, which opens at 0 and closes at 69633.
+    const auto text = file_with_data("$", one_char_variable, "\"" + inner + "\"$\n");
+
+    const forced_parallel force;
+    const auto parallel = require_parallel_matches_serial(text);
+    REQUIRE(parallel.variables.size() == 1);
+    CHECK(parallel.variables[0].records == 1);
+    CHECK(strings_of(parallel.variables[0]).front() == inner);
+}
+
+// A '!' comment runs to the end of its line, so a marker inside it is data, not a record end. When
+// a cut lands on such a marker the chunk ends inside a comment that never terminates: the scanner
+// does not end on a marker and the parse falls back to the serial scanner.
+TEST_CASE("corpus: a cut inside a comment falls back")
+{
+    std::string body = "1.5$\n";
+    for (std::size_t line = 0; line < 4096; ++line)
+        body += "!" + std::string(30, '$') + "\n";
+    // Body = 131077 bytes; the cuts at 32769, 65538 and 98307 all land on a '$' inside a comment.
+    const auto text = file_with_data("$", one_float_variable, body);
+
+    const forced_parallel force;
+    const auto parallel = require_parallel_matches_serial(text);
+    REQUIRE(parallel.variables.size() == 1);
+    CHECK(parallel.variables[0].records == 1);
+    CHECK(values_of<float>(parallel.variables[0]).front() == 1.5f);
+}
+
+// The error a chunk raises is discarded: the whole body is reparsed with one scanner, so the line
+// and record number are the serial ones even when the bad value sits in the last chunk.
+TEST_CASE("corpus: an error in a late chunk keeps the serial message")
+{
+    std::string body;
+    for (std::size_t record = 0; record < 4000; ++record)
+        body += record == 3200 ? "x1.5$\n" : "1.5$\n";
+    const auto text = file_with_data("$", one_float_variable, body);
+
+    const forced_parallel force;
+    std::string serial_error;
+    std::string parallel_error;
+    try
+    {
+        std::ignore = load_text_with_threads(text, 1);
+    }
+    catch (const cefast::parse_error& error)
+    {
+        serial_error = error.what();
+    }
+    try
+    {
+        std::ignore = load_text_with_threads(text, 4);
+    }
+    catch (const cefast::parse_error& error)
+    {
+        parallel_error = error.what();
+    }
+    REQUIRE(!serial_error.empty());
+    CHECK(serial_error.find("(record 3201)") != std::string::npos);
+    CHECK(parallel_error == serial_error);
+}
+
+// The cut search is text based, so a multi-byte marker goes through find() and the same verify and
+// fall back rules; nothing may assume a one-byte marker.
+TEST_CASE("corpus: a multi-character marker splits and parses like serial")
+{
+    std::string body;
+    for (std::size_t record = 0; record < 4000; ++record)
+        body += "1.5$$\n";
+    const auto text = file_with_data("\"$$\"", one_float_variable, body);
+
+    const forced_parallel force;
+    const auto parallel = require_parallel_matches_serial(text);
+    REQUIRE(parallel.variables.size() == 1);
+    CHECK(parallel.variables[0].records == 4000);
+    CHECK(values_of<float>(parallel.variables[0]).back() == 1.5f);
+}
+
+// The cuts are the contract between the split and the verifier: each one is right after a marker,
+// strictly after the previous one (so no chunk is empty) and inside the body (so there is always a
+// last chunk). A body without a marker yields no cuts at all and the caller parses it serially.
+TEST_CASE("parallel: speculative cuts land right after a marker")
+{
+    std::string body;
+    for (std::size_t record = 0; record < 100; ++record)
+        body += "1.5$\n";
+    const auto cuts = cefast::detail::speculative_cuts(body, "$", 4);
+    REQUIRE(cuts.size() == 3);
+    for (std::size_t index = 0; index < cuts.size(); ++index)
+    {
+        REQUIRE(cuts[index] > 0);
+        REQUIRE(cuts[index] < body.size());
+        CHECK(body[cuts[index] - 1] == '$');
+        if (index > 0)
+            CHECK(cuts[index] > cuts[index - 1]);
+    }
+
+    // The same marker found from several offsets is one cut, not an empty chunk.
+    const auto deduped = cefast::detail::speculative_cuts("1234$$5678", "$$", 8);
+    REQUIRE(deduped.size() == 1);
+    CHECK(deduped.front() == 6);
+
+    CHECK(cefast::detail::speculative_cuts("1.5\n2.5\n", "$", 4).empty());
+    CHECK(cefast::detail::speculative_cuts("1.5$\n2.5$", "$", 1).empty());
+    CHECK(cefast::detail::speculative_cuts("1.5$\n2.5$", "", 4).empty());
+}

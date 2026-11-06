@@ -460,6 +460,7 @@ namespace detail
                         ++line;
                     end_record();
                     position += marker.size();
+                    on_marker = position == data.size();
                     continue;
                 }
                 if (c == ',')
@@ -500,6 +501,11 @@ namespace detail
             for (auto& column : columns)
                 finish(column, records);
         }
+
+        // True iff the bytes up to data.size() were consumed by the marker branch: a chunk that
+        // ends this way handed the next chunk a clean state (not quoted, not in a comment, at the
+        // start of a record), which is what lets the parallel parse trust its chunk boundaries.
+        [[nodiscard]] bool ended_on_marker() const noexcept { return on_marker; }
 
     private:
         void add(std::string_view value, bool quoted)
@@ -564,6 +570,7 @@ namespace detail
         std::size_t surplus = 0;
         std::size_t records = 0;
         std::size_t record_line = 0;
+        bool on_marker = false;
         scan_state state = scan_state::at_value_start;
     };
 }

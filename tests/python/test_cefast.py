@@ -2,6 +2,9 @@ import gc
 import gzip
 import os
 import pathlib
+import signal
+import sys
+import time
 import unittest
 
 import numpy as np
@@ -213,6 +216,39 @@ class TestVariables(unittest.TestCase):
         gc.collect()
         self.assertEqual(values.shape, (286, 3))
         self.assertTrue(np.isfinite(values.sum()))
+
+
+class TestProcesses(unittest.TestCase):
+    @unittest.skipUnless(sys.platform.startswith("linux"), "fork is POSIX only")
+    def test_fork_after_parallel_load(self):
+        # The worker pool is process-wide and a forked child inherits none of its threads, so the
+        # child must rebuild it instead of waiting on workers that do not exist there.
+        path = corpus_file("C1_CP_WHI_ELECTRON_DENSITY")
+        before = cefast.load(path, threads=4)
+
+        pid = os.fork()
+        if pid == 0:
+            try:
+                after = cefast.load(path, threads=4)
+                same = list(before) == list(after) and all(
+                    np.array_equal(before[name].values, after[name].values)
+                    for name in before
+                )
+                os._exit(0 if same else 1)
+            except BaseException:
+                os._exit(2)
+
+        deadline = time.monotonic() + 30
+        while True:
+            done, status = os.waitpid(pid, os.WNOHANG)
+            if done == pid:
+                break
+            if time.monotonic() > deadline:
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
+                self.fail("the forked child did not finish within 30 s")
+            time.sleep(0.01)
+        self.assertEqual(os.waitstatus_to_exitcode(status), 0)
 
 
 if __name__ == "__main__":

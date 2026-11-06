@@ -23,6 +23,7 @@ headers = files(
         'include/cefast/data/parallel.hpp',
         'include/cefast/data/records.hpp',
         'include/cefast/data/structural.hpp',
+        'include/cefast/data/workers.hpp',
         'include/cefast/errors.hpp',
         'include/cefast/header/attributes.hpp',
         'include/cefast/header/lexer.hpp',

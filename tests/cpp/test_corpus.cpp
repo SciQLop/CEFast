@@ -15,6 +15,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <variant>
 #include <vector>
 
@@ -704,4 +705,65 @@ TEST_CASE("parallel: speculative cuts land right after a marker")
     CHECK(cefast::detail::speculative_cuts("1.5\n2.5\n", "$", 4).empty());
     CHECK(cefast::detail::speculative_cuts("1.5$\n2.5$", "$", 1).empty());
     CHECK(cefast::detail::speculative_cuts("1.5$\n2.5$", "", 4).empty());
+}
+
+// Two loads in flight at once share one pool of persistent workers: neither may wait for the
+// other's jobs to drain, and both must produce exactly the serial columns.
+TEST_CASE("parallel: two concurrent loads share the workers")
+{
+    std::string body;
+    for (std::size_t record = 0; record < 2000; ++record)
+        body += "1.5$\n";
+    const auto text = file_with_data("$", one_float_variable, body);
+    const auto serial = load_text_with_threads(text, 1);
+
+    const forced_parallel force;
+    constexpr std::size_t iterations = 50;
+    cefast::cef_file last[2];
+    std::vector<std::thread> loaders;
+    for (std::size_t slot = 0; slot < 2; ++slot)
+        loaders.emplace_back(
+            [&, slot]
+            {
+                for (std::size_t iteration = 0; iteration < iterations; ++iteration)
+                    last[slot] = load_text_with_threads(text, 4);
+            });
+    for (auto& loader : loaders)
+        loader.join();
+
+    REQUIRE(serial.variables.size() == 1);
+    for (std::size_t slot = 0; slot < 2; ++slot)
+    {
+        REQUIRE(last[slot].variables.size() == serial.variables.size());
+        CHECK(last[slot].variables[0].records == 2000);
+        require_same_column(serial.variables[0], last[slot].variables[0]);
+    }
+}
+
+// Far more threads than chunks: most jobs find the shared counter already exhausted and finish
+// without touching anything. A load must still return with every chunk parsed, and a job that
+// wakes after the caller is done must not see freed state (this is the ASan-suite case).
+TEST_CASE("parallel: load returns before a slow worker")
+{
+    std::string body;
+    for (std::size_t record = 0; record < 4; ++record)
+    {
+        body += "1.5" + std::string(59, ' ');
+        if (record + 1 < 4)
+            body += "$";
+    }
+    // The terminator is found as the text starting a line, so the last record needs its newline.
+    body += '\n';
+    const auto text = file_with_data("$", one_float_variable, body);
+    // The speculative split finds three markers in a body this long, so four chunks are parsed by
+    // the worker copies that all race for them.
+    REQUIRE(cefast::detail::speculative_cuts(body, "$", 64).size() == 3);
+    const auto serial = load_text_with_threads(text, 1);
+    const forced_parallel force;
+    for (std::size_t iteration = 0; iteration < 500; ++iteration)
+    {
+        const auto parallel = load_text_with_threads(text, 64);
+        REQUIRE(parallel.variables[0].records == 4);
+        require_same_column(serial.variables[0], parallel.variables[0]);
+    }
 }

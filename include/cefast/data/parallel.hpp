@@ -17,9 +17,11 @@ namespace cefast
 {
 namespace detail
 {
-    // Below this the thread start-up costs more than the parse. Test hook: the fuzz target lowers
-    // it so that a small input still takes the parallel path.
-    inline std::size_t parallel_threshold = 512 * 1024;
+    // Below this the thread start-up, variable-list copies and column concatenation cost more than
+    // the parse they overlap. Measured at a ~190 KiB body break-even, see
+    // docs/perf/2026-11-round5-parallel.md. Test hook: the fuzz target lowers it so that a small
+    // input still takes the parallel path.
+    inline std::size_t parallel_threshold = 256 * 1024;
 
     inline std::size_t default_threads() noexcept
     {

@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import gzip
 import re
-import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -143,11 +142,10 @@ def main() -> None:
         raise SystemExit(
             "the CSA corpus is missing: run python -I tools/fetch_csa_corpus.py"
         )
+    # Seeds are added next to what the fuzzers grew there, never by wiping it: the default output is
+    # the corpus libFuzzer keeps growing between campaigns.
     for name in ("load", "time", "float", "lexer", "lexer_diff"):
-        directory = arguments.output / name
-        if directory.exists():
-            shutil.rmtree(directory)
-        directory.mkdir(parents=True)
+        (arguments.output / name).mkdir(parents=True, exist_ok=True)
     # The differential target takes exactly the lexer seeds: both sides read the same input.
     lexer_dirs = [arguments.output / "lexer", arguments.output / "lexer_diff"]
     seed_load_and_lexer(arguments.output / "load", lexer_dirs)
@@ -158,7 +156,7 @@ def main() -> None:
     seed_float(arguments.output / "float")
     for name in ("load", "time", "float", "lexer", "lexer_diff"):
         count = len(list((arguments.output / name).iterdir()))
-        print(f"{name}: {count} seeds in {arguments.output / name}")
+        print(f"{name}: {count} inputs in {arguments.output / name}")
 
 
 if __name__ == "__main__":

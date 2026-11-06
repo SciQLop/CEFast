@@ -61,7 +61,7 @@ struct input_description
     return index < size ? data[index] : static_cast<std::uint8_t>(0);
 }
 
-// Prologue: [slot count][marker][fill?][type]... The body starts right after the type bytes.
+// Prologue: [variable count][marker][fill?][type + elements]... The body starts right after the type bytes.
 [[nodiscard]] input_description describe(const std::uint8_t* data, std::size_t size)
 {
     const std::size_t slots = 1 + (byte_at(data, size, 0) % 6);
@@ -77,13 +77,16 @@ struct input_description
     }
     for (std::size_t slot = 0; slot < slots; ++slot)
     {
-        const auto type_index = byte_at(data, size, 3 + slot) % slot_types.size();
+        const auto type_byte = byte_at(data, size, 3 + slot);
+        const auto type_index = type_byte % slot_types.size();
+        // The high bits give the variable 1-4 elements, so a record has columns of several values.
+        const auto elements = 1 + (type_byte / 16) % 4;
         const auto type = slot_types[type_index];
         const auto name = "v" + std::to_string(slot);
         header += "START_VARIABLE = " + name + "\n";
         header += "  VALUE_TYPE = ";
         header += type_names[type_index];
-        header += "\n  SIZES = 1\n";
+        header += "\n  SIZES = " + std::to_string(elements) + "\n";
         if (with_fill)
             header += "  FILLVAL = " + fill_token(type) + "\n";
         header += "END_VARIABLE = " + name + "\n";

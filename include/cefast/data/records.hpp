@@ -372,25 +372,6 @@ namespace detail
         return false;
     }
 
-    // Range checks of store() for a number the record fast path has already parsed (fill values
-    // never get here: the fast path matches them on the raw text first).
-    [[nodiscard]] inline bool put_int(column_state& state, std::int64_t value)
-    {
-        if (value < std::numeric_limits<std::int32_t>::min()
-            || value > std::numeric_limits<std::int32_t>::max())
-            return false;
-        put(state, static_cast<std::int32_t>(value));
-        return true;
-    }
-
-    [[nodiscard]] inline bool put_byte(column_state& state, std::int64_t value)
-    {
-        if (value < 0 || value > 255)
-            return false;
-        put(state, static_cast<std::uint8_t>(value));
-        return true;
-    }
-
     // Puts a column back to what it held after `records` records. The fast path stores values as it
     // parses them and rewinds here when the record turns out not to be one it can finish.
     inline void truncate(column_state& state, std::size_t records)
@@ -470,6 +451,9 @@ namespace detail
             // always goes through the state machine. The byte-by-byte test hook keeps the fast path
             // out too, so that test still compares the two traversals.
             fast_records = single_marker && !scan_one_byte_at_a_time();
+            for (std::size_t column = 0; column < columns.size(); ++column)
+                if (columns[column].per_record != 0)
+                    last_filled_column = column;
             for (const auto& column : columns)
                 if (column.type == value_type::CHAR || column.type == value_type::ISO_TIME_RANGE)
                     fast_records = false;
@@ -674,57 +658,87 @@ namespace detail
             return true;
         }
 
-        // Parses and stores the value starting at `at`, moving `at` past it. False when the record
-        // has to go through the state machine instead.
-        [[nodiscard]] bool store_fast(column_state& target, std::size_t& at)
+        // The `count` values of one column, each followed by ',' or, for the last value of the
+        // record, by the marker (left for the caller to consume). Typed once per column, so the
+        // per-value work is skip, parse, store, skip, one compare. False when the record has to go
+        // through the state machine instead.
+        template <typename T, typename Convert>
+        [[nodiscard]] bool fast_column(column_state& target, T fill, Convert convert,
+            std::size_t count, bool ends_record, std::size_t& position, std::size_t& local_line,
+            bool multi_line)
         {
-            const bool maybe_fill = static_cast<unsigned char>(data[at]) == target.fill_first;
+            std::size_t at = position;
+            for (std::size_t element = 0; element < count; ++element)
+            {
+                skip_blanks(at, local_line, multi_line);
+                if (at >= data.size() || is_stop(data[at], marker_char))
+                    return false;
+                T value = fill;
+                const bool maybe_fill = static_cast<unsigned char>(data[at]) == target.fill_first;
+                if (!(maybe_fill && skip_fill(at, target)) && !convert(at, value))
+                    return false;
+                put(target, value);
+                skip_blanks(at, local_line, multi_line);
+                if (at >= data.size())
+                    return false;
+                if (ends_record && element + 1 == count)
+                {
+                    if (data[at] != marker_char)
+                        return false;
+                }
+                else
+                {
+                    if (data[at] != ',')
+                        return false;
+                    ++at;
+                }
+            }
+            position = at;
+            return true;
+        }
+
+        [[nodiscard]] bool fast_column(column_state& target, bool ends_record,
+            std::size_t& position, std::size_t& local_line, bool multi_line)
+        {
+            const auto count = target.per_record;
             switch (target.type)
             {
                 case value_type::FLOAT:
-                {
-                    float value = static_cast<float>(target.fill_number);
-                    if (!(maybe_fill && skip_fill(at, target)) && !parse_float_at(at, value))
-                        return false;
-                    put(target, value);
-                    return true;
-                }
+                    return fast_column(target, static_cast<float>(target.fill_number),
+                        [this](std::size_t& at, float& value) { return parse_float_at(at, value); },
+                        count, ends_record, position, local_line, multi_line);
                 case value_type::DOUBLE:
-                {
-                    double value = target.fill_number;
-                    if (!(maybe_fill && skip_fill(at, target)) && !parse_float_at(at, value))
-                        return false;
-                    put(target, value);
-                    return true;
-                }
+                    return fast_column(target, target.fill_number,
+                        [this](std::size_t& at, double& value) { return parse_float_at(at, value); },
+                        count, ends_record, position, local_line, multi_line);
                 case value_type::INT:
-                {
-                    if (maybe_fill && skip_fill(at, target))
-                    {
-                        put(target, static_cast<std::int32_t>(target.fill_integer));
-                        return true;
-                    }
-                    std::int64_t value = 0;
-                    return parse_int_at(at, value) && put_int(target, value);
-                }
+                    return fast_column(target, static_cast<std::int32_t>(target.fill_integer),
+                        [this](std::size_t& at, std::int32_t& value)
+                        {
+                            std::int64_t wide = 0;
+                            if (!parse_int_at(at, wide)
+                                || wide < std::numeric_limits<std::int32_t>::min()
+                                || wide > std::numeric_limits<std::int32_t>::max())
+                                return false;
+                            value = static_cast<std::int32_t>(wide);
+                            return true;
+                        },
+                        count, ends_record, position, local_line, multi_line);
                 case value_type::BYTE:
-                {
-                    if (maybe_fill && skip_fill(at, target))
-                    {
-                        put(target, static_cast<std::uint8_t>(target.fill_integer));
-                        return true;
-                    }
-                    std::int64_t value = 0;
-                    return parse_int_at(at, value) && put_byte(target, value);
-                }
+                    return fast_column(target, static_cast<std::uint8_t>(target.fill_integer),
+                        [this](std::size_t& at, std::uint8_t& value)
+                        {
+                            std::int64_t wide = 0;
+                            if (!parse_int_at(at, wide) || wide < 0 || wide > 255)
+                                return false;
+                            value = static_cast<std::uint8_t>(wide);
+                            return true;
+                        },
+                        count, ends_record, position, local_line, multi_line);
                 case value_type::ISO_TIME:
-                {
-                    std::int64_t value = nat;
-                    if (!(maybe_fill && skip_fill(at, target)) && !parse_time_at(at, value))
-                        return false;
-                    put(target, value);
-                    return true;
-                }
+                    return fast_column(target, nat,
+                        [this](std::size_t& at, std::int64_t& value) { return parse_time_at(at, value); },
+                        count, ends_record, position, local_line, multi_line);
                 case value_type::ISO_TIME_RANGE:
                 case value_type::CHAR:
                     return false;
@@ -745,60 +759,30 @@ namespace detail
         // is left alone, so the existing code parses that record and reports as before.
         bool try_fast_record(std::size_t& position)
         {
-            if (!fast_records)
+            if (!fast_records || slots.empty())
                 return false;
             const auto multi_line = marker_char != '\n';
             std::size_t local_line = line;
             std::size_t at = position;
-            for (std::size_t slot_index = 0; slot_index < slots.size(); ++slot_index)
-            {
-                skip_blanks(at, local_line, multi_line);
-                if (at >= data.size() || is_stop(data[at], marker_char))
+            for (std::size_t column = 0; column < columns.size(); ++column)
+                if (!fast_column(columns[column], column == last_filled_column, at, local_line,
+                        multi_line))
                 {
                     rewind();
                     return false;
                 }
-                if (!store_fast(*slots[slot_index].state, at))
-                {
-                    rewind();
-                    return false;
-                }
-                skip_blanks(at, local_line, multi_line);
-                if (at >= data.size())
-                {
-                    rewind();
-                    return false;
-                }
-                if (slot_index + 1 < slots.size())
-                {
-                    if (data[at] != ',')
-                    {
-                        rewind();
-                        return false;
-                    }
-                    ++at;
-                    continue;
-                }
-                if (data[at] != marker_char)
-                {
-                    rewind();
-                    return false;
-                }
-                ++at;
-                ++records;
-                index = 0;
-                surplus = 0;
-                // The old marker branch counts a newline marker as a line break too.
-                if (marker_char == '\n')
-                    ++local_line;
-                line = local_line;
-                position = at;
-                on_marker = at == data.size();
-                state = scan_state::at_value_start;
-                return true;
-            }
-            rewind();
-            return false;
+            ++at;
+            ++records;
+            index = 0;
+            surplus = 0;
+            // The old marker branch counts a newline marker as a line break too.
+            if (marker_char == '\n')
+                ++local_line;
+            line = local_line;
+            position = at;
+            on_marker = at == data.size();
+            state = scan_state::at_value_start;
+            return true;
         }
 
         void add(std::string_view value, bool quoted)
@@ -864,6 +848,8 @@ namespace detail
         std::size_t record_line = 0;
         bool on_marker = false;
         bool fast_records = false;
+        // The column holding the record's last value: its last value is followed by the marker.
+        std::size_t last_filled_column = 0;
         scan_state state = scan_state::at_value_start;
     };
 }

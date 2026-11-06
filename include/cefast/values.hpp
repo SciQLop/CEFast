@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include <cfloat>
 #include <charconv>
 #include <cstdint>
 #include <limits>
@@ -70,6 +72,100 @@ namespace detail
         if (result.ec != std::errc { } || result.ptr == text.data())
             return nullptr;
         return result.ptr;
+    }
+
+    // The common CSA spellings, read in one loop: an optional sign and up to 18 digits. Returns
+    // the end of the digits, or null for anything else (no digits, 19+ digits, "+-5"...), which
+    // the caller hands to std::from_chars. When this accepts, std::from_chars would stop at the
+    // same byte with the same value.
+    [[nodiscard]] inline const char* parse_plain_int(
+        const char* first, const char* last, std::int64_t& value) noexcept
+    {
+        const bool negative = first != last && *first == '-';
+        if (negative || (first != last && *first == '+'))
+            ++first;
+        const char* digits = first;
+        std::uint64_t integer = 0;
+        while (first != last && static_cast<unsigned char>(*first - '0') < 10 && first - digits < 19)
+            integer = integer * 10 + static_cast<std::uint64_t>(*first++ - '0');
+        if (first == digits || first - digits > 18)
+            return nullptr;
+        value = negative ? -static_cast<std::int64_t>(integer) : static_cast<std::int64_t>(integer);
+        return first;
+    }
+
+    // Powers of ten that are exact in double; float uses the first 11, which are exact in float too.
+    inline constexpr std::array<double, 23> exact_powers_of_ten { 1e0, 1e1, 1e2, 1e3, 1e4, 1e5,
+        1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21,
+        1e22 };
+
+    // Reads up to four exponent digits after 'e'/'E'. Null when there are none (fast_float then
+    // stops before the 'e') or too many.
+    [[nodiscard]] inline const char* parse_plain_exponent(
+        const char* first, const char* last, int& exponent) noexcept
+    {
+        const bool negative = first != last && *first == '-';
+        if (negative || (first != last && *first == '+'))
+            ++first;
+        const char* digits = first;
+        int value = 0;
+        while (first != last && static_cast<unsigned char>(*first - '0') < 10 && first - digits < 5)
+            value = value * 10 + (*first++ - '0');
+        if (first == digits || first - digits > 4)
+            return nullptr;
+        exponent = negative ? -value : value;
+        return first;
+    }
+
+    // [sign]digits[.digits][e[sign]digits] with a mantissa M exact in T and a decimal scale small
+    // enough that 10^|scale| is exact in T: then M * 10^scale (or M / 10^-scale) is one correctly
+    // rounded IEEE operation, the value fast_float returns (Clinger's fast path,
+    // https://doi.org/10.1145/93548.93557). Anything else returns null and goes to fast_float.
+    // Leading zeros count as digits, which only sends a few more tokens to fast_float.
+    template <typename T>
+    [[nodiscard]] inline const char* parse_plain_decimal(
+        const char* first, const char* last, T& value) noexcept
+    {
+#if FLT_EVAL_METHOD != 0
+        // x87 evaluates in extended precision: the operation would round twice.
+        return nullptr;
+#endif
+        constexpr int max_digits = std::is_same_v<T, float> ? 7 : 15;
+        constexpr int max_scale = std::is_same_v<T, float> ? 10 : 22;
+        const bool negative = first != last && *first == '-';
+        if (negative || (first != last && *first == '+'))
+            ++first;
+        std::uint64_t mantissa = 0;
+        int digits = 0;
+        int fraction = 0;
+        for (; first != last && static_cast<unsigned char>(*first - '0') < 10; ++first, ++digits)
+            mantissa = mantissa * 10 + static_cast<std::uint64_t>(*first - '0');
+        if (first != last && *first == '.')
+            for (++first; first != last && static_cast<unsigned char>(*first - '0') < 10;
+                ++first, ++digits, ++fraction)
+                mantissa = mantissa * 10 + static_cast<std::uint64_t>(*first - '0');
+        if (digits == 0 || digits > max_digits)
+            return nullptr;
+        int exponent = 0;
+        if (first != last && (*first == 'e' || *first == 'E'))
+        {
+            first = parse_plain_exponent(first + 1, last, exponent);
+            if (first == nullptr)
+                return nullptr;
+        }
+        const int scale = exponent - fraction;
+        if (scale == 0)
+        {
+            value = negative ? -static_cast<T>(mantissa) : static_cast<T>(mantissa);
+            return first;
+        }
+        if (scale < -max_scale || scale > max_scale)
+            return nullptr;
+        const auto power = static_cast<T>(exact_powers_of_ten[static_cast<std::size_t>(scale < 0 ? -scale : scale)]);
+        const T exact = static_cast<T>(mantissa);
+        const T magnitude = scale < 0 ? exact / power : exact * power;
+        value = negative ? -magnitude : magnitude;
+        return first;
     }
 
     template <typename T>

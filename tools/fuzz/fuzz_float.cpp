@@ -87,6 +87,44 @@ void check(std::string_view text)
         __builtin_trap();
     }
 }
+
+// The record fast path's one-loop parsers must agree with the general ones whenever they accept:
+// same end byte and the same bits. Declining (null) is always allowed.
+template <typename T>
+void check_plain_decimal(std::string_view text)
+{
+    const char* first = text.data();
+    const char* last = text.data() + text.size();
+    T plain = 0;
+    const char* end = cefast::detail::parse_plain_decimal(first, last, plain);
+    if (end == nullptr)
+        return;
+    T reference = 0;
+    const auto result = fast_float::from_chars(first, last, reference, cefast::detail::float_format);
+    if (result.ec != std::errc { } || result.ptr != end || !same_value(plain, reference))
+    {
+        std::fprintf(stderr, "fuzz_float<%s>: parse_plain_decimal differs from fast_float on \"%.*s\"\n",
+            std::is_same_v<T, float> ? "float" : "double", static_cast<int>(text.size()),
+            text.data());
+        __builtin_trap();
+    }
+}
+
+void check_plain_int(std::string_view text)
+{
+    std::int64_t plain = 0;
+    const char* end = cefast::detail::parse_plain_int(text.data(), text.data() + text.size(), plain);
+    if (end == nullptr)
+        return;
+    std::int64_t reference = 0;
+    const char* reference_end = cefast::detail::parse_int_prefix(text, reference);
+    if (reference_end != end || reference != plain)
+    {
+        std::fprintf(stderr, "fuzz_float: parse_plain_int differs from std::from_chars on \"%.*s\"\n",
+            static_cast<int>(text.size()), text.data());
+        __builtin_trap();
+    }
+}
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size)
@@ -94,5 +132,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     const std::string_view text { reinterpret_cast<const char*>(data), size };
     check<float>(text);
     check<double>(text);
+    check_plain_decimal<float>(text);
+    check_plain_decimal<double>(text);
+    check_plain_int(text);
     return 0;
 }

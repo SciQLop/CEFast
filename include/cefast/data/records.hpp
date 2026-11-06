@@ -119,6 +119,9 @@ namespace detail
         std::int64_t fill_integer = 0;
         // Values this column receives per record (ranges store two per element).
         std::size_t per_record = 1;
+        // First byte of the fill text, or -1 without a usable fill: one compare rules out nearly
+        // every value before the full fill comparison.
+        int fill_first = -1;
     };
 
     template <typename T>
@@ -255,6 +258,8 @@ namespace detail
             case value_type::CHAR:
                 break;
         }
+        if (state.has_fill)
+            state.fill_first = static_cast<unsigned char>(state.fillval.front());
     }
 
     // Fill values are short, so the size check decides most tokens and the few equal-length ones
@@ -271,37 +276,43 @@ namespace detail
         return true;
     }
 
+    // The fill value of a numeric or time column, already converted. Returns false for CHAR, whose
+    // fill text is stored like any other text.
+    inline bool put_fill(column_state& state)
+    {
+        switch (state.type)
+        {
+            case value_type::FLOAT:
+                put(state, static_cast<float>(state.fill_number));
+                return true;
+            case value_type::DOUBLE:
+                put(state, state.fill_number);
+                return true;
+            case value_type::INT:
+                put(state, static_cast<std::int32_t>(state.fill_integer));
+                return true;
+            case value_type::BYTE:
+                put(state, static_cast<std::uint8_t>(state.fill_integer));
+                return true;
+            case value_type::ISO_TIME:
+                put(state, nat);
+                return true;
+            case value_type::ISO_TIME_RANGE:
+                put(state, nat);
+                put(state, nat);
+                return true;
+            case value_type::CHAR:
+                return false;
+        }
+        return false;
+    }
+
     // One data token into its column. Returns false when the text cannot represent the type: the
     // caller owns the source/line/record context of the error.
     [[nodiscard]] inline bool store(column_state& state, std::string_view token)
     {
-        if (state.has_fill && same_text(token, state.fillval))
-        {
-            switch (state.type)
-            {
-                case value_type::FLOAT:
-                    put(state, static_cast<float>(state.fill_number));
-                    return true;
-                case value_type::DOUBLE:
-                    put(state, state.fill_number);
-                    return true;
-                case value_type::INT:
-                    put(state, static_cast<std::int32_t>(state.fill_integer));
-                    return true;
-                case value_type::BYTE:
-                    put(state, static_cast<std::uint8_t>(state.fill_integer));
-                    return true;
-                case value_type::ISO_TIME:
-                    put(state, nat);
-                    return true;
-                case value_type::ISO_TIME_RANGE:
-                    put(state, nat);
-                    put(state, nat);
-                    return true;
-                case value_type::CHAR:
-                    break;
-            }
-        }
+        if (state.has_fill && same_text(token, state.fillval) && put_fill(state))
+            return true;
         switch (state.type)
         {
             case value_type::FLOAT:
@@ -361,41 +372,10 @@ namespace detail
         return false;
     }
 
-    // The record fast path has already parsed the number, so these mirror store()'s fill and range
-    // decisions without reading the token a second time. They return false exactly where store()
-    // would reject the value.
-    [[nodiscard]] inline bool store_parsed_float(
-        column_state& state, std::string_view token, float value)
+    // Range checks of store() for a number the record fast path has already parsed (fill values
+    // never get here: the fast path matches them on the raw text first).
+    [[nodiscard]] inline bool put_int(column_state& state, std::int64_t value)
     {
-        if (state.has_fill && same_text(token, state.fillval))
-        {
-            put(state, static_cast<float>(state.fill_number));
-            return true;
-        }
-        put(state, value);
-        return true;
-    }
-
-    [[nodiscard]] inline bool store_parsed_float(
-        column_state& state, std::string_view token, double value)
-    {
-        if (state.has_fill && same_text(token, state.fillval))
-        {
-            put(state, state.fill_number);
-            return true;
-        }
-        put(state, value);
-        return true;
-    }
-
-    [[nodiscard]] inline bool store_parsed_int(
-        column_state& state, std::string_view token, std::int64_t value)
-    {
-        if (state.has_fill && same_text(token, state.fillval))
-        {
-            put(state, static_cast<std::int32_t>(state.fill_integer));
-            return true;
-        }
         if (value < std::numeric_limits<std::int32_t>::min()
             || value > std::numeric_limits<std::int32_t>::max())
             return false;
@@ -403,29 +383,11 @@ namespace detail
         return true;
     }
 
-    [[nodiscard]] inline bool store_parsed_byte(
-        column_state& state, std::string_view token, std::int64_t value)
+    [[nodiscard]] inline bool put_byte(column_state& state, std::int64_t value)
     {
-        if (state.has_fill && same_text(token, state.fillval))
-        {
-            put(state, static_cast<std::uint8_t>(state.fill_integer));
-            return true;
-        }
         if (value < 0 || value > 255)
             return false;
         put(state, static_cast<std::uint8_t>(value));
-        return true;
-    }
-
-    [[nodiscard]] inline bool store_parsed_time(
-        column_state& state, std::string_view token, std::int64_t value)
-    {
-        if (state.has_fill && same_text(token, state.fillval))
-        {
-            put(state, nat);
-            return true;
-        }
-        put(state, value);
         return true;
     }
 
@@ -645,48 +607,38 @@ namespace detail
             }
         }
 
-        // The <=4-digit shortcut parse_small_integer takes, extended to a sign (CEF writes most
-        // fill cells as "-1") and with the token end decided by the stop table instead of a known
-        // token length. Anything longer goes to the end-pointer parser.
+        // A value ends where its parser stops, and only counts if a stop byte (or the end) follows.
+        [[nodiscard]] bool ends_value(const char* end) const noexcept
+        {
+            return end != nullptr
+                && (end == data.data() + data.size() || is_stop(*end, marker_char));
+        }
+
+        // Plain spellings take the one-loop parsers; anything they decline takes the general one.
         template <typename T>
         [[nodiscard]] bool parse_float_at(std::size_t& at, T& value) const noexcept
         {
-            std::size_t digits = at;
-            const bool negative = digits < data.size() && data[digits] == '-';
-            if (negative || (digits < data.size() && data[digits] == '+'))
-                ++digits;
-            const auto first = digits;
-            while (digits < data.size() && digits - first < 4 && data[digits] >= '0'
-                && data[digits] <= '9')
-                ++digits;
-            if (digits != first && (digits == data.size() || is_stop(data[digits], marker_char)))
-            {
-                std::uint32_t integer = 0;
-                for (auto index = first; index < digits; ++index)
-                    integer = integer * 10 + static_cast<std::uint32_t>(data[index] - '0');
-                value = negative ? -static_cast<T>(integer) : static_cast<T>(integer);
-                at = digits;
-                return true;
-            }
-            const auto end = parse_float_prefix(data.substr(at), value);
+            const char* first = data.data() + at;
+            const char* last = data.data() + data.size();
+            const char* end = parse_plain_decimal(first, last, value);
             if (end == nullptr)
+                end = parse_float_prefix(std::string_view { first, data.size() - at }, value);
+            if (!ends_value(end))
                 return false;
-            const auto offset = static_cast<std::size_t>(end - data.data());
-            if (offset == data.size() || !is_stop(data[offset], marker_char))
-                return false;
-            at = offset;
+            at = static_cast<std::size_t>(end - data.data());
             return true;
         }
 
         [[nodiscard]] bool parse_int_at(std::size_t& at, std::int64_t& value) const noexcept
         {
-            const auto end = parse_int_prefix(data.substr(at), value);
+            const char* first = data.data() + at;
+            const char* last = data.data() + data.size();
+            const char* end = parse_plain_int(first, last, value);
             if (end == nullptr)
+                end = parse_int_prefix(std::string_view { first, data.size() - at }, value);
+            if (!ends_value(end))
                 return false;
-            const auto offset = static_cast<std::size_t>(end - data.data());
-            if (offset == data.size() || !is_stop(data[offset], marker_char))
-                return false;
-            at = offset;
+            at = static_cast<std::size_t>(end - data.data());
             return true;
         }
 
@@ -705,6 +657,79 @@ namespace detail
             value = *time;
             at = end;
             return true;
+        }
+
+        // A fill cell is matched on the raw text before any parsing: it equals the token exactly
+        // when the fill text is followed by a stop byte, which is the test store() makes. On a match
+        // `at` moves past it.
+        [[nodiscard]] bool skip_fill(std::size_t& at, const column_state& target) const noexcept
+        {
+            const auto size = target.fillval.size();
+            const auto end = at + size;
+            if (end > data.size()
+                || !same_text(std::string_view { data.data() + at, size }, target.fillval)
+                || (end != data.size() && !is_stop(data[end], marker_char)))
+                return false;
+            at = end;
+            return true;
+        }
+
+        // Parses and stores the value starting at `at`, moving `at` past it. False when the record
+        // has to go through the state machine instead.
+        [[nodiscard]] bool store_fast(column_state& target, std::size_t& at)
+        {
+            const bool maybe_fill = static_cast<unsigned char>(data[at]) == target.fill_first;
+            switch (target.type)
+            {
+                case value_type::FLOAT:
+                {
+                    float value = static_cast<float>(target.fill_number);
+                    if (!(maybe_fill && skip_fill(at, target)) && !parse_float_at(at, value))
+                        return false;
+                    put(target, value);
+                    return true;
+                }
+                case value_type::DOUBLE:
+                {
+                    double value = target.fill_number;
+                    if (!(maybe_fill && skip_fill(at, target)) && !parse_float_at(at, value))
+                        return false;
+                    put(target, value);
+                    return true;
+                }
+                case value_type::INT:
+                {
+                    if (maybe_fill && skip_fill(at, target))
+                    {
+                        put(target, static_cast<std::int32_t>(target.fill_integer));
+                        return true;
+                    }
+                    std::int64_t value = 0;
+                    return parse_int_at(at, value) && put_int(target, value);
+                }
+                case value_type::BYTE:
+                {
+                    if (maybe_fill && skip_fill(at, target))
+                    {
+                        put(target, static_cast<std::uint8_t>(target.fill_integer));
+                        return true;
+                    }
+                    std::int64_t value = 0;
+                    return parse_int_at(at, value) && put_byte(target, value);
+                }
+                case value_type::ISO_TIME:
+                {
+                    std::int64_t value = nat;
+                    if (!(maybe_fill && skip_fill(at, target)) && !parse_time_at(at, value))
+                        return false;
+                    put(target, value);
+                    return true;
+                }
+                case value_type::ISO_TIME_RANGE:
+                case value_type::CHAR:
+                    return false;
+            }
+            return false;
         }
 
         // Drops everything the failed attempt stored: every stored value belongs to the record that
@@ -733,57 +758,7 @@ namespace detail
                     rewind();
                     return false;
                 }
-                auto& target = *slots[slot_index].state;
-                const auto token_start = at;
-                bool stored = false;
-                switch (target.type)
-                {
-                    case value_type::FLOAT:
-                    {
-                        float value = 0;
-                        stored = parse_float_at(at, value)
-                            && store_parsed_float(
-                                target, std::string_view { data.data() + token_start, at - token_start }, value);
-                        break;
-                    }
-                    case value_type::DOUBLE:
-                    {
-                        double value = 0;
-                        stored = parse_float_at(at, value)
-                            && store_parsed_float(
-                                target, std::string_view { data.data() + token_start, at - token_start }, value);
-                        break;
-                    }
-                    case value_type::INT:
-                    {
-                        std::int64_t value = 0;
-                        stored = parse_int_at(at, value)
-                            && store_parsed_int(
-                                target, std::string_view { data.data() + token_start, at - token_start }, value);
-                        break;
-                    }
-                    case value_type::BYTE:
-                    {
-                        std::int64_t value = 0;
-                        stored = parse_int_at(at, value)
-                            && store_parsed_byte(
-                                target, std::string_view { data.data() + token_start, at - token_start }, value);
-                        break;
-                    }
-                    case value_type::ISO_TIME:
-                    {
-                        std::int64_t value = 0;
-                        stored = parse_time_at(at, value)
-                            && store_parsed_time(
-                                target, std::string_view { data.data() + token_start, at - token_start }, value);
-                        break;
-                    }
-                    case value_type::ISO_TIME_RANGE:
-                    case value_type::CHAR:
-                        rewind();
-                        return false;
-                }
-                if (!stored)
+                if (!store_fast(*slots[slot_index].state, at))
                 {
                     rewind();
                     return false;

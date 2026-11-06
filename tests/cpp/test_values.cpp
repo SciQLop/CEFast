@@ -244,3 +244,69 @@ TEST_CASE("number parsing matches fast_float", "[values]")
         require_same_parse<double>(text);
     }
 }
+
+namespace
+{
+template <typename T>
+void expect_plain_matches_fast_float(std::string_view text, bool should_accept)
+{
+    T plain = 0;
+    const char* end
+        = detail::parse_plain_decimal(text.data(), text.data() + text.size(), plain);
+    CHECK((end != nullptr) == should_accept);
+    if (end == nullptr)
+        return;
+    T reference = 0;
+    const auto result = fast_float::from_chars(
+        text.data(), text.data() + text.size(), reference, detail::float_format);
+    CHECK(result.ptr == end);
+    CHECK(std::memcmp(&plain, &reference, sizeof(T)) == 0);
+}
+}
+
+TEST_CASE("values: plain decimals equal fast_float bit for bit", "[values]")
+{
+    for (const auto* text : { "0", "-0", "+7", "16.9", "0.00239", "90909.0", "1.", ".5", "-.5",
+             "2423.33", "1.234e-05", "4E+3", "1e10", "9999999", "0.1", "1,", "3 " })
+    {
+        INFO(text);
+        expect_plain_matches_fast_float<float>(text, true);
+        expect_plain_matches_fast_float<double>(text, true);
+    }
+}
+
+TEST_CASE("values: plain decimals leave hard spellings to fast_float", "[values]")
+{
+    // Fill values, long mantissas, out-of-range scales, half-written exponents, inf/nan, signs.
+    for (const auto* text : { "-1.00000e+31", "12345678", "1e11", "1e", "1e+", ".", "+.", "-",
+             "inf", "nan", "+-5", "" })
+    {
+        INFO(text);
+        expect_plain_matches_fast_float<float>(text, false);
+    }
+    expect_plain_matches_fast_float<double>("1e22", true);
+    expect_plain_matches_fast_float<double>("1e23", false);
+    expect_plain_matches_fast_float<double>("123456789012345", true);
+    expect_plain_matches_fast_float<double>("1234567890123456", false);
+}
+
+TEST_CASE("values: plain integers equal std::from_chars", "[values]")
+{
+    for (const auto* text : { "0", "-1", "+42", "255", "007", "999999999999999999", "12,", "5$" })
+    {
+        INFO(text);
+        std::int64_t plain = 0;
+        std::int64_t reference = 0;
+        const std::string_view view { text };
+        const char* end = detail::parse_plain_int(view.data(), view.data() + view.size(), plain);
+        REQUIRE(end != nullptr);
+        CHECK(end == detail::parse_int_prefix(view, reference));
+        CHECK(plain == reference);
+    }
+    for (const auto* text : { "", "-", "+-5", "1234567890123456789" })
+    {
+        std::int64_t plain = 0;
+        const std::string_view view { text };
+        CHECK(detail::parse_plain_int(view.data(), view.data() + view.size(), plain) == nullptr);
+    }
+}

@@ -32,6 +32,7 @@ dependencies = ["numpy"]
 [project.urls]
 homepage = "https://github.com/SciQLop/CEFast"
 repository = "https://github.com/SciQLop/CEFast"
+documentation = "https://cefast.readthedocs.io"
 
 [tool.meson-python.args]
 setup = [

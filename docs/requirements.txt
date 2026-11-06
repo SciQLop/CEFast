@@ -1,0 +1,6 @@
+sphinx>=7,<9
+furo
+sphinx-design
+sphinx-copybutton
+numpydoc
+myst-parser

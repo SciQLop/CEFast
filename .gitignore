@@ -10,3 +10,4 @@ subprojects/*
 compile_commands.json
 tests/resources/csa/
 fuzz-*.log
+docs/_build/

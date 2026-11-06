@@ -1,0 +1,21 @@
+# Read the Docs configuration, see https://docs.readthedocs.io/en/stable/config-file/v2.html
+version: 2
+
+# The API page is generated from the compiled module's docstrings, so the package is built from
+# this checkout: meson-python needs a C++20 compiler, the rest comes from pip.
+build:
+  os: ubuntu-24.04
+  apt_packages:
+    - g++
+  tools:
+    python: "3.13"
+
+sphinx:
+  configuration: docs/conf.py
+  fail_on_warning: true
+
+python:
+  install:
+    - requirements: docs/requirements.txt
+    - method: pip
+      path: .

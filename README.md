@@ -3,6 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/cefast)](https://pypi.org/project/cefast/)
 [![Python versions](https://img.shields.io/pypi/pyversions/cefast)](https://pypi.org/project/cefast/)
 [![license](https://img.shields.io/badge/license-MIT-blue)](COPYING)
+[![docs](https://readthedocs.org/projects/cefast/badge/?version=latest)](https://cefast.readthedocs.io/en/latest/)
 
 <p align="center"><img src="docs/images/cefast_logo.png" alt="CEFast" width="600"></p>
 
@@ -10,6 +11,7 @@
 
 A fast reader for CEF (Cluster Exchange Format), the text format of ESA's Cluster Science Archive.
 C++20 core, Python bindings, no dependencies beyond numpy.
+Documentation: https://cefast.readthedocs.io
 
 ```sh
 pip install cefast
@@ -66,8 +68,8 @@ cefast.load(data)                  # bytes, bytearray or memoryview
 identical either way.
 
 Loading releases the GIL. A path is memory-mapped, or read when the platform has no mmap, and bytes
-are borrowed: the returned arrays are views on that memory, valid as long as the `CEF` object and
-its variables live.
+are only read during the call. Numeric and time arrays are views on CEFast's parsed data, not
+copies: each array keeps that data alive by itself.
 
 ## Variables
 

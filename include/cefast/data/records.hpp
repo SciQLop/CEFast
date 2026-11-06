@@ -481,8 +481,14 @@ namespace detail
                 }
                 if (is_space(c))
                 {
+                    // CSA pads columns with runs of spaces (up to a dozen per value): consume the
+                    // run here instead of going round the loop once per blank. Only ' ' is
+                    // tested, one compare, so single-blank files do not pay for the skip; a tab
+                    // or '\r' simply goes round the loop as before.
                     close_unquoted(position, token_start);
-                    ++position;
+                    do
+                        ++position;
+                    while (position < data.size() && data[position] == ' ');
                     continue;
                 }
                 if (state == scan_state::after_value)

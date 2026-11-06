@@ -382,8 +382,7 @@ namespace detail
         record_scanner(schema& result, std::string_view data, std::size_t first_line,
             std::string_view source, std::size_t first_record = 0,
             std::optional<std::size_t> hint = std::nullopt)
-                : result { result }
-                , first_record { first_record }
+                : first_record { first_record }
                 , data { data }
                 , line { first_line }
                 , source { source }
@@ -560,7 +559,6 @@ namespace detail
             state = scan_state::at_value_start;
         }
 
-        schema& result;
         std::size_t first_record;
         std::string_view data;
         std::size_t line;

@@ -2,6 +2,14 @@
 History
 =======
 
+0.1.1 (2026-11-06)
+==================
+
+- Fix a crash in Pyodide (JupyterLite, the browser): with Chromium, reading the first ``.values``
+  could abort Python with "memory access out of bounds".
+- Docstrings for the whole Python API, and a documentation site with examples you can run in the
+  browser.
+
 0.1.0 (2026-11-06)
 ==================
 

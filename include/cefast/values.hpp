@@ -57,6 +57,30 @@ namespace detail
             token.data(), token.data() + token.size(), value, float_format);
         return result.ec == std::errc { } && result.ptr == token.data() + token.size();
     }
+
+    // End-pointer spellings for the record fast path: the parser stops at the first byte that does
+    // not belong to the number, and the caller accepts the value only if that byte is a stop byte
+    // (or the end of the data). A null return means there is no number to parse at all.
+    [[nodiscard]] inline const char* parse_int_prefix(
+        std::string_view text, std::int64_t& value) noexcept
+    {
+        if (!text.empty() && text.front() == '+')
+            text.remove_prefix(1);
+        const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+        if (result.ec != std::errc { } || result.ptr == text.data())
+            return nullptr;
+        return result.ptr;
+    }
+
+    template <typename T>
+    [[nodiscard]] inline const char* parse_float_prefix(std::string_view text, T& value) noexcept
+    {
+        const auto result
+            = fast_float::from_chars(text.data(), text.data() + text.size(), value, float_format);
+        if (result.ec != std::errc { } || result.ptr == text.data())
+            return nullptr;
+        return result.ptr;
+    }
 }
 
 [[nodiscard]] inline column make_column(value_type type)

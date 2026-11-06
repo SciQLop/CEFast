@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -439,4 +440,114 @@ TEST_CASE("records: the inline fill comparison matches string_view equality", "[
     for (const auto fill : fills)
         for (const auto token : tokens)
             CHECK(detail::same_text(token, fill) == (token == fill));
+}
+
+TEST_CASE("records: malformed numbers keep the invalid-value message", "[records]")
+{
+    // The end-pointer parser only speeds up numbers that end on a stop byte. Anything else has to
+    // report exactly what the token parser reported before: same text, same record number.
+    for (const std::string_view token : { "12abc", "1.5e", "-", "+." })
+    {
+        INFO(token);
+        try
+        {
+            std::ignore = load(header("", one_float) + std::string { token } + "\nEND_DATA\n");
+            FAIL("an invalid float was accepted");
+        }
+        catch (const parse_error& error)
+        {
+            const std::string message { error.what() };
+            CHECK(message.find("invalid FLOAT value: " + std::string { token })
+                != std::string::npos);
+            CHECK(message.find("record 1") != std::string::npos);
+        }
+    }
+}
+
+TEST_CASE("records: a quote after a number is still a missing separator", "[records]")
+{
+    try
+    {
+        load(header("", one_float) + "1\"x\"\nEND_DATA\n");
+        FAIL("a quote glued to a number was accepted");
+    }
+    catch (const parse_error& error)
+    {
+        const std::string message { error.what() };
+        CHECK(message.find("missing separator") != std::string::npos);
+        CHECK(message.find("record 1") != std::string::npos);
+    }
+}
+
+TEST_CASE("records: inf and nan are values, not errors", "[records]")
+{
+    const auto result = load(header("", one_float) + "inf\nnan\n+inf\n-inf\nEND_DATA\n");
+    const auto& values
+        = std::get<cpp_utils::containers::no_init_vector<float>>(result.file.variables[0].values);
+    REQUIRE(values.size() == 4);
+    CHECK(std::isinf(values[0]));
+    CHECK(values[0] > 0);
+    CHECK(std::isnan(values[1]));
+    CHECK(std::isinf(values[2]));
+    CHECK(values[2] > 0);
+    CHECK(std::isinf(values[3]));
+    CHECK(values[3] < 0);
+}
+
+TEST_CASE("records: a number may touch a comment or the marker", "[records]")
+{
+    // The value ends at the first stop byte, so '!' and the marker both bound it without a space.
+    const auto commented = load(header("", one_float) + "1.5!comment\n2.5\nEND_DATA\n");
+    CHECK(commented.file.variables[0].records == 2);
+    const auto& commented_values = std::get<cpp_utils::containers::no_init_vector<float>>(
+        commented.file.variables[0].values);
+    REQUIRE(commented_values.size() == 2);
+    CHECK(commented_values[0] == 1.5f);
+    CHECK(commented_values[1] == 2.5f);
+
+    const auto marked = load(header("\"$\"", one_float) + "1.5$2.5$\nEND_DATA\n");
+    CHECK(marked.file.variables[0].records == 2);
+    const auto& marked_values = std::get<cpp_utils::containers::no_init_vector<float>>(
+        marked.file.variables[0].values);
+    REQUIRE(marked_values.size() == 2);
+    CHECK(marked_values[0] == 1.5f);
+    CHECK(marked_values[1] == 2.5f);
+}
+
+TEST_CASE("records: a fill column still matches the FILLVAL text", "[records]")
+{
+    // FILLVAL is a text comparison: a token spelled exactly like it is a fill, a token that only
+    // parses to the same number is an ordinary value. Both spellings sit next to a comma and next
+    // to the marker here, where the fast path must hand the text slice to the same comparison.
+    const auto result = load(header("\"$\"", R"(START_VARIABLE = v
+  VALUE_TYPE = FLOAT
+  SIZES = 4
+  FILLVAL = -1.00000e+31
+END_VARIABLE = v)")
+        + "-1.00000e+31, -1.00000e+31, -1.00000e+32, 1.5$\nEND_DATA\n");
+    const auto& values
+        = std::get<cpp_utils::containers::no_init_vector<float>>(result.file.variables[0].values);
+    REQUIRE(values.size() == 4);
+    CHECK(values[0] == -1e31f);
+    CHECK(values[1] == -1e31f);
+    CHECK(values[2] == -1e32f);
+    CHECK(values[3] == 1.5f);
+}
+
+TEST_CASE("records: a later bad record keeps its line after a fast record", "[records]")
+{
+    // The first record takes the fast path; the second one does not, and the message must still
+    // point at the second record's line. The header is five lines, so the body starts at line 6.
+    try
+    {
+        std::ignore = load(header("", one_float) + "22222\n~\nEND_DATA\n");
+        FAIL("a bad float was accepted");
+    }
+    catch (const parse_error& error)
+    {
+        const std::string message { error.what() };
+        CHECK(message.find(":7:") != std::string::npos);
+        CHECK(message.find("invalid FLOAT value: ~") != std::string::npos);
+        CHECK(message.find("(record 2)") != std::string::npos);
+    }
 }

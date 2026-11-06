@@ -361,6 +361,103 @@ namespace detail
         return false;
     }
 
+    // The record fast path has already parsed the number, so these mirror store()'s fill and range
+    // decisions without reading the token a second time. They return false exactly where store()
+    // would reject the value.
+    [[nodiscard]] inline bool store_parsed_float(
+        column_state& state, std::string_view token, float value)
+    {
+        if (state.has_fill && same_text(token, state.fillval))
+        {
+            put(state, static_cast<float>(state.fill_number));
+            return true;
+        }
+        put(state, value);
+        return true;
+    }
+
+    [[nodiscard]] inline bool store_parsed_float(
+        column_state& state, std::string_view token, double value)
+    {
+        if (state.has_fill && same_text(token, state.fillval))
+        {
+            put(state, state.fill_number);
+            return true;
+        }
+        put(state, value);
+        return true;
+    }
+
+    [[nodiscard]] inline bool store_parsed_int(
+        column_state& state, std::string_view token, std::int64_t value)
+    {
+        if (state.has_fill && same_text(token, state.fillval))
+        {
+            put(state, static_cast<std::int32_t>(state.fill_integer));
+            return true;
+        }
+        if (value < std::numeric_limits<std::int32_t>::min()
+            || value > std::numeric_limits<std::int32_t>::max())
+            return false;
+        put(state, static_cast<std::int32_t>(value));
+        return true;
+    }
+
+    [[nodiscard]] inline bool store_parsed_byte(
+        column_state& state, std::string_view token, std::int64_t value)
+    {
+        if (state.has_fill && same_text(token, state.fillval))
+        {
+            put(state, static_cast<std::uint8_t>(state.fill_integer));
+            return true;
+        }
+        if (value < 0 || value > 255)
+            return false;
+        put(state, static_cast<std::uint8_t>(value));
+        return true;
+    }
+
+    [[nodiscard]] inline bool store_parsed_time(
+        column_state& state, std::string_view token, std::int64_t value)
+    {
+        if (state.has_fill && same_text(token, state.fillval))
+        {
+            put(state, nat);
+            return true;
+        }
+        put(state, value);
+        return true;
+    }
+
+    // Puts a column back to what it held after `records` records. The fast path stores values as it
+    // parses them and rewinds here when the record turns out not to be one it can finish.
+    inline void truncate(column_state& state, std::size_t records)
+    {
+        finish(state, records);
+        const auto total = records * state.per_record;
+        switch (state.type)
+        {
+            case value_type::FLOAT:
+                set_cursor<float>(state, total);
+                break;
+            case value_type::DOUBLE:
+                set_cursor<double>(state, total);
+                break;
+            case value_type::INT:
+                set_cursor<std::int32_t>(state, total);
+                break;
+            case value_type::BYTE:
+                set_cursor<std::uint8_t>(state, total);
+                break;
+            case value_type::ISO_TIME:
+            case value_type::ISO_TIME_RANGE:
+                set_cursor<std::int64_t>(state, total);
+                break;
+            case value_type::CHAR:
+                break;
+        }
+    }
+
     struct slot
     {
         column_state* state;
@@ -407,6 +504,13 @@ namespace detail
                 for (std::size_t element = 0; element < count; ++element)
                     slots.push_back({ &columns.back() });
             }
+            // CHAR needs the quote handling and ISO_TIME_RANGE two tokens, so a record with either
+            // always goes through the state machine. The byte-by-byte test hook keeps the fast path
+            // out too, so that test still compares the two traversals.
+            fast_records = single_marker && !scan_one_byte_at_a_time();
+            for (const auto& column : columns)
+                if (column.type == value_type::CHAR || column.type == value_type::ISO_TIME_RANGE)
+                    fast_records = false;
         }
 
         void run()
@@ -415,6 +519,15 @@ namespace detail
             std::size_t token_start = 0;
             while (position < data.size())
             {
+                // A record that is entirely plain numbers/one ISO time and ends on a ',' or the
+                // marker is consumed in one pass; anything else falls through to the state machine
+                // below, unchanged, so every message and line number still comes from it.
+                if (state == scan_state::at_value_start && index == 0 && surplus == 0
+                    && !is_stop(data[position], marker_char) && try_fast_record(position))
+                {
+                    token_start = position;
+                    continue;
+                }
                 const std::size_t stop
                     = next_stop(data, position, single_marker ? marker_char : '\0', byte_by_byte);
                 if (stop > position)
@@ -513,6 +626,206 @@ namespace detail
         [[nodiscard]] bool ended_on_marker() const noexcept { return on_marker; }
 
     private:
+        // Skips the padding CSA puts around values, and, when the marker is not a newline, the line
+        // breaks of a multi-line record (each counted in `local_line`).
+        void skip_blanks(std::size_t& at, std::size_t& local_line, bool multi_line) const noexcept
+        {
+            for (;;)
+            {
+                while (at < data.size()
+                    && (data[at] == ' ' || data[at] == '\t' || data[at] == '\r'))
+                    ++at;
+                if (multi_line && at < data.size() && data[at] == '\n')
+                {
+                    ++local_line;
+                    ++at;
+                    continue;
+                }
+                return;
+            }
+        }
+
+        // The <=4-digit shortcut parse_small_integer takes, extended to a sign (CEF writes most
+        // fill cells as "-1") and with the token end decided by the stop table instead of a known
+        // token length. Anything longer goes to the end-pointer parser.
+        template <typename T>
+        [[nodiscard]] bool parse_float_at(std::size_t& at, T& value) const noexcept
+        {
+            std::size_t digits = at;
+            const bool negative = digits < data.size() && data[digits] == '-';
+            if (negative || (digits < data.size() && data[digits] == '+'))
+                ++digits;
+            const auto first = digits;
+            while (digits < data.size() && digits - first < 4 && data[digits] >= '0'
+                && data[digits] <= '9')
+                ++digits;
+            if (digits != first && (digits == data.size() || is_stop(data[digits], marker_char)))
+            {
+                std::uint32_t integer = 0;
+                for (auto index = first; index < digits; ++index)
+                    integer = integer * 10 + static_cast<std::uint32_t>(data[index] - '0');
+                value = negative ? -static_cast<T>(integer) : static_cast<T>(integer);
+                at = digits;
+                return true;
+            }
+            const auto end = parse_float_prefix(data.substr(at), value);
+            if (end == nullptr)
+                return false;
+            const auto offset = static_cast<std::size_t>(end - data.data());
+            if (offset == data.size() || !is_stop(data[offset], marker_char))
+                return false;
+            at = offset;
+            return true;
+        }
+
+        [[nodiscard]] bool parse_int_at(std::size_t& at, std::int64_t& value) const noexcept
+        {
+            const auto end = parse_int_prefix(data.substr(at), value);
+            if (end == nullptr)
+                return false;
+            const auto offset = static_cast<std::size_t>(end - data.data());
+            if (offset == data.size() || !is_stop(data[offset], marker_char))
+                return false;
+            at = offset;
+            return true;
+        }
+
+        // An ISO time has no parser-provided end pointer, so the token end is the first stop byte;
+        // parse_iso_time then takes its SIMD fixed-width path for the common 24-byte spelling.
+        [[nodiscard]] bool parse_time_at(std::size_t& at, std::int64_t& value) const noexcept
+        {
+            std::size_t end = at;
+            while (end < data.size() && !is_stop(data[end], marker_char))
+                ++end;
+            if (end == at)
+                return false;
+            const auto time = parse_iso_time(data.substr(at, end - at));
+            if (!time)
+                return false;
+            value = *time;
+            at = end;
+            return true;
+        }
+
+        // Drops everything the failed attempt stored: every stored value belongs to the record that
+        // starts at `records`, so truncating to `records` records is exact.
+        void rewind()
+        {
+            for (auto& column : columns)
+                truncate(column, records);
+        }
+
+        // One whole well-formed record without the state machine. Nothing is committed until the
+        // marker is consumed; on any other outcome the columns are rewound and the caller's position
+        // is left alone, so the existing code parses that record and reports as before.
+        bool try_fast_record(std::size_t& position)
+        {
+            if (!fast_records)
+                return false;
+            const auto multi_line = marker_char != '\n';
+            std::size_t local_line = line;
+            std::size_t at = position;
+            for (std::size_t slot_index = 0; slot_index < slots.size(); ++slot_index)
+            {
+                skip_blanks(at, local_line, multi_line);
+                if (at >= data.size() || is_stop(data[at], marker_char))
+                {
+                    rewind();
+                    return false;
+                }
+                auto& target = *slots[slot_index].state;
+                const auto token_start = at;
+                bool stored = false;
+                switch (target.type)
+                {
+                    case value_type::FLOAT:
+                    {
+                        float value = 0;
+                        stored = parse_float_at(at, value)
+                            && store_parsed_float(
+                                target, std::string_view { data.data() + token_start, at - token_start }, value);
+                        break;
+                    }
+                    case value_type::DOUBLE:
+                    {
+                        double value = 0;
+                        stored = parse_float_at(at, value)
+                            && store_parsed_float(
+                                target, std::string_view { data.data() + token_start, at - token_start }, value);
+                        break;
+                    }
+                    case value_type::INT:
+                    {
+                        std::int64_t value = 0;
+                        stored = parse_int_at(at, value)
+                            && store_parsed_int(
+                                target, std::string_view { data.data() + token_start, at - token_start }, value);
+                        break;
+                    }
+                    case value_type::BYTE:
+                    {
+                        std::int64_t value = 0;
+                        stored = parse_int_at(at, value)
+                            && store_parsed_byte(
+                                target, std::string_view { data.data() + token_start, at - token_start }, value);
+                        break;
+                    }
+                    case value_type::ISO_TIME:
+                    {
+                        std::int64_t value = 0;
+                        stored = parse_time_at(at, value)
+                            && store_parsed_time(
+                                target, std::string_view { data.data() + token_start, at - token_start }, value);
+                        break;
+                    }
+                    case value_type::ISO_TIME_RANGE:
+                    case value_type::CHAR:
+                        rewind();
+                        return false;
+                }
+                if (!stored)
+                {
+                    rewind();
+                    return false;
+                }
+                skip_blanks(at, local_line, multi_line);
+                if (at >= data.size())
+                {
+                    rewind();
+                    return false;
+                }
+                if (slot_index + 1 < slots.size())
+                {
+                    if (data[at] != ',')
+                    {
+                        rewind();
+                        return false;
+                    }
+                    ++at;
+                    continue;
+                }
+                if (data[at] != marker_char)
+                {
+                    rewind();
+                    return false;
+                }
+                ++at;
+                ++records;
+                index = 0;
+                surplus = 0;
+                // The old marker branch counts a newline marker as a line break too.
+                if (marker_char == '\n')
+                    ++local_line;
+                line = local_line;
+                position = at;
+                on_marker = at == data.size();
+                state = scan_state::at_value_start;
+                return true;
+            }
+            rewind();
+            return false;
+        }
+
         void add(std::string_view value, bool quoted)
         {
             if (index == 0 && surplus == 0)
@@ -575,6 +888,7 @@ namespace detail
         std::size_t records = 0;
         std::size_t record_line = 0;
         bool on_marker = false;
+        bool fast_records = false;
         scan_state state = scan_state::at_value_start;
     };
 }

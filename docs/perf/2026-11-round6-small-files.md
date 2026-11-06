@@ -116,3 +116,18 @@ The gap is the pybind11 conversion of the result (a Python object per variable a
 behind them), not call overhead: on a 0.3 ms load the wrapper costs what the whole header parse
 costs. A `--runs 7` cefast-vs-CEFLIB run after the lexer commit: total 14.7 ms vs 34.0 ms,
 per-file median 1.33x, min 0.91x (C4).
+
+## After round 6 (2026-11-06, early morning)
+
+Per load, `perf stat bench_load <file> 500 1`, instructions.
+
+**Kept — consume a run of padding spaces in one step (`79897be`).** C4_CP_AUX_ESOC_MEP pads each value with
+5-13 spaces and the scanner went round its main loop once per space. C4 8.40M -> 5.74M (-32 %, cycles -25 %),
+PEA 38.0M -> 34.5M (-9 %), CODIF H1 -1 %, DWP and WHI flat. A first version tested `is_space()` (three
+compares) in the inner loop and cost single-blank files +2-4 %; testing `' '` only removed that.
+
+**Reverted — small-integer shortcut in `parse_int`.** DWP has 26 INT values per record, so it looked free:
+DWP 5.12M -> 4.89M (-4.5 %). But CODIF H1 (FLOAT only) went 103.9M -> 107.4M (+3.4 %, deterministic) and
+PEA +1.6 %: the extra code changed GCC's inlining in `record_scanner::run()` (its own share went 37M -> 44M
+instructions) though `run()` never calls `parse_int`. Next attempt should pin the inlining first (e.g. keep
+`store()` out of line, or `[[gnu::noinline]]` on the cold CHAR/time cases) and re-measure all files.

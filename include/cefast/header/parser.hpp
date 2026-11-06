@@ -68,8 +68,7 @@ namespace detail
 
     [[nodiscard]] inline std::optional<std::int64_t> try_integer(std::string_view text) noexcept
     {
-        if (!text.empty() && text.front() == '+')
-            text.remove_prefix(1);
+        text = without_plus(text);
         std::int64_t value = 0;
         const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
         if (result.ec != std::errc { } || result.ptr != text.data() + text.size())

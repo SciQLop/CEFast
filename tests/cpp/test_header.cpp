@@ -545,3 +545,18 @@ TEST_CASE("header: the WHI header is lexed and parsed without per-line allocatio
     CHECK(lex_allocations + parse_allocations < 2 * lines);
     CHECK(file.file.variables.size() == 10);
 }
+
+TEST_CASE("header: an INT FILLVAL spelled with a plus and a minus stays text", "[header]")
+{
+    // "+-5" is not a number, so it is not typed: the attribute keeps the text.
+    const auto result = parse(R"(FILE_FORMAT_VERSION = "CEF-2.0"
+START_VARIABLE = count
+  VALUE_TYPE = INT
+  FILLVAL = +-5
+END_VARIABLE = count
+DATA_UNTIL = END_DATA
+)");
+    const auto* fill = find(result.file.variables[0].attrs, "FILLVAL");
+    REQUIRE(fill);
+    CHECK(std::holds_alternative<std::string>(fill->entries.front()));
+}

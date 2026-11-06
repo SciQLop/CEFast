@@ -18,10 +18,19 @@ namespace cefast
 {
 namespace detail
 {
+    // CEF writes a leading '+', which std::from_chars does not take. One sign only: "+-5" becomes
+    // an empty token, which std::from_chars rejects.
+    [[nodiscard]] inline std::string_view without_plus(std::string_view token) noexcept
+    {
+        if (token.empty() || token.front() != '+')
+            return token;
+        token.remove_prefix(1);
+        return !token.empty() && token.front() == '-' ? std::string_view { } : token;
+    }
+
     [[nodiscard]] inline bool parse_int(std::string_view token, std::int64_t& value) noexcept
     {
-        if (!token.empty() && token.front() == '+')
-            token.remove_prefix(1);
+        token = without_plus(token);
         const auto result = std::from_chars(token.data(), token.data() + token.size(), value);
         return result.ec == std::errc { } && result.ptr == token.data() + token.size();
     }
@@ -66,8 +75,7 @@ namespace detail
     [[nodiscard]] inline const char* parse_int_prefix(
         std::string_view text, std::int64_t& value) noexcept
     {
-        if (!text.empty() && text.front() == '+')
-            text.remove_prefix(1);
+        text = without_plus(text);
         const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
         if (result.ec != std::errc { } || result.ptr == text.data())
             return nullptr;

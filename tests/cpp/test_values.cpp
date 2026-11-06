@@ -310,3 +310,14 @@ TEST_CASE("values: plain integers equal std::from_chars", "[values]")
         CHECK(detail::parse_plain_int(view.data(), view.data() + view.size(), plain) == nullptr);
     }
 }
+
+TEST_CASE("values: INT and BYTE reject a plus followed by a minus", "[values]")
+{
+    // One sign is a sign: "+-5" is not a number (the FLOAT and DOUBLE grammar already says so).
+    for (const auto type : { value_type::INT, value_type::BYTE })
+    {
+        column values = make_column(type);
+        CHECK_FALSE(append_value(values, type, "+-5", ""));
+        CHECK_FALSE(append_value(values, type, "+-0", ""));
+    }
+}

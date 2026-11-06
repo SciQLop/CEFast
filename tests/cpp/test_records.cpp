@@ -551,3 +551,26 @@ TEST_CASE("records: a later bad record keeps its line after a fast record", "[re
         CHECK(message.find("(record 2)") != std::string::npos);
     }
 }
+
+TEST_CASE("records: an INT spelled with a plus and a minus is an error", "[records]")
+{
+    constexpr std::string_view one_int = R"(START_VARIABLE = v
+  VALUE_TYPE = INT
+  SIZES = 1
+END_VARIABLE = v
+)";
+    // Through the record fast path and through the state machine (a comment forces the latter).
+    for (const std::string body : { "+-5\nEND_DATA\n", "+-5 ! note\nEND_DATA\n" })
+    {
+        INFO(body);
+        try
+        {
+            std::ignore = load(header("", one_int) + body);
+            FAIL("+-5 was accepted as an INT");
+        }
+        catch (const parse_error& error)
+        {
+            CHECK(std::string { error.what() }.find("invalid INT value: +-5") != std::string::npos);
+        }
+    }
+}

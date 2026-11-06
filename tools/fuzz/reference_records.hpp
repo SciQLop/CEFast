@@ -109,8 +109,14 @@ namespace detail
 {
     [[nodiscard]] inline bool parse_int(std::string_view token, std::int64_t& value) noexcept
     {
+        // The one deliberate change since the copy was frozen: "+-5" used to be read as -5. One
+        // sign only, as the library now does (values.hpp, without_plus).
         if (!token.empty() && token.front() == '+')
+        {
             token.remove_prefix(1);
+            if (!token.empty() && token.front() == '-')
+                return false;
+        }
         const auto result = std::from_chars(token.data(), token.data() + token.size(), value);
         return result.ec == std::errc { } && result.ptr == token.data() + token.size();
     }

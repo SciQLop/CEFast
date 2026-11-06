@@ -84,7 +84,7 @@ fork/concurrency under `tests/python/` (additions only).
   `parallel_threshold` ~35 % above break-even. Append the table to `docs/perf/2026-11-round5-parallel.md` under
   "Round 7: persistent workers". Commit `perf(parallel): threshold for persistent workers`.
 
-### Task B: Parse numbers in place
+### Task B: Record fast path (numbers find their own end)
 
 **Files:** `include/cefast/data/records.hpp`, `include/cefast/values.hpp` (parsers that return the end pointer),
 `tools/fuzz/reference_records.hpp` (verbatim frozen copy of today's `records.hpp` + whatever of `values.hpp` /
@@ -97,19 +97,32 @@ fork/concurrency under `tests/python/` (additions only).
   among FLOAT/DOUBLE/INT/BYTE/ISO_TIME/CHAR, a FILLVAL or none, marker `$`, `$$` or `\n`) and a body. It runs the new
   and the reference scanner. Both throw with equal `what()`, or both give equal columns and record counts. Any
   mismatch → `__builtin_trap()`.
-- Fast path, in `run()`: at value start, when the next byte is not a stop byte, the slot is FLOAT/DOUBLE/INT/BYTE,
-  and the marker is a single character: parse with an end-pointer parser (`fast_float::from_chars` result `ptr`;
-  `std::from_chars` for INT/BYTE, keeping the small-integer shortcut). Accept only if the parse succeeded, consumed
-  at least one byte, and the byte at `ptr` is a stop byte for `next_stop` (`is_stop`, same set exactly) or end of
-  data. Then the token is `[start, ptr)`: go through the same `store`/fill/range checks as today and continue the
-  loop at `ptr` in state `after_value`. In every other case run today's code from the token start, unchanged.
+- Why (measured 2026-11-06 on DWP, `perf record -e instructions:u`): the data section costs ~350 instructions per
+  value for ~6 bytes per value; `record_scanner::run` alone ~187 per value, before any conversion. CEFLIB's naive C
+  parser costs about the same per byte (5.4 M vs our 5.8 M instructions per DWP load, through Python). The general
+  state machine sends every separator byte (` , ` = 3 bytes) round the whole branch chain, then `add()` does its
+  bookkeeping. Target: under 100 instructions per value on DWP's data section.
+- Record fast path, a new member of `record_scanner` (e.g. `bool try_fast_record(std::size_t& position)`), called
+  from `run()` at the start of each record when the marker is a single character. It walks the slots in order:
+  skip `' '`/`'\t'`, parse the value with an end-pointer parser (`fast_float::from_chars` result `ptr`;
+  `std::from_chars` for INT/BYTE keeping the small-integer shortcut; the SIMD fixed ISO time for ISO_TIME), skip
+  blanks, then require `,` (between values) or the marker (after the last slot, optionally preceded by blanks and
+  `\n`/`\r\n` line breaks, counted in `line`). Each value goes through the same `store`/fill/range checks as
+  today. Writes go to the columns only after the record is known good, or are rolled back (columns truncated to
+  their size at record start) on bail-out.
+- Bail out (return false, `position` unchanged, columns as they were) on anything else: a quote, a `!`, a CHAR or
+  ISO_TIME_RANGE slot, a parse failure, a value whose end is not a stop byte (`is_stop`, same set exactly), an
+  empty field, too few/many values, end of data inside the record. `run()` then parses that record with today's
+  code, unchanged, so every error message, line and record number comes from the existing path by construction.
+- Records spanning several lines (PEACE puts the marker on its own line) must work in the fast path, or bail out;
+  say which in the report.
 
 - [ ] Task B1: frozen reference + `fuzz_records_diff`. Run 5 min against the unchanged scanner: must be clean.
   Commit `test(fuzz): differential target for the record scanner`.
 - [ ] Task B2: tests for each Review Focus 4 and 5 input that is not covered yet (list which already were). They
   pass on today's code.
 - [ ] Implement. Full suite, ASan suite, `fuzz_records_diff` 20 min, `fuzz_load` replay, then 10 min `fuzz_load`.
-- [ ] Counters; commit `perf(records): numbers find their own end`.
+- [ ] Counters; commit `perf(records): fast path for well-formed records`.
 
 ### Task C (spike): SIMD integer runs with runtime dispatch
 

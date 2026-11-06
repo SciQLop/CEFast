@@ -36,6 +36,10 @@ Correctness is checked, not claimed:
   plus hand-made files for malformed input;
 - the full suite runs under ASan and UBSan in CI, together with an allocation budget test for the
   header path;
+- libFuzzer targets run in CI, each comparing a fast path with a slow reference: serial against
+  parallel loading, the float parser against `strtod`, the fixed-width time parser against the
+  general one, the header lexer and the record scanner against frozen copies of the simpler code
+  they replaced;
 - a malformed file raises a `ParseError` naming the file, the line and the record: it never returns
   shifted columns or garbage.
 
@@ -56,6 +60,10 @@ cefast.load("file.cef")            # path or os.PathLike
 cefast.load("file.cef.gz")         # gzip, detected from the content
 cefast.load(data)                  # bytes, bytearray or memoryview
 ```
+
+`threads=0` (the default) picks a thread count from the machine, `threads=1` parses serially,
+`threads=N` uses at most N. Data sections above ~48 KiB are split across threads; the result is
+identical either way.
 
 Loading releases the GIL. A path is memory-mapped, or read when the platform has no mmap, and bytes
 are borrowed: the returned arrays are views on that memory, valid as long as the `CEF` object and
@@ -135,10 +143,13 @@ With meson: `dependency('cefast', fallback: ['cefast', 'cefast_dep'])`.
 
 ## Performance
 
-On the 41-file CSA sample corpus (10.4 MB), against CEFLIB 1.8.6: **34.9 ms against 37.2 ms**
-(1.07x overall, median 1.19x per file). Single files vary from 0.82x to 1.90x; gzipped files are
-limited by decompression. Timings are machine-dependent; `tools/ceflib/benchmark.py` reproduces
-them.
+On the 41-file CSA sample corpus (10.4 MB), against CEFLIB 1.8.6, loading every file from Python
+with the default threads: **11.5 ms against 35.1 ms** (3.05x overall, median 1.60x per file).
+Every file is faster, from 1.20x to 7x. Numbers from a Ryzen 7 5800X; gzipped files are limited by
+decompression. `tools/ceflib/benchmark.py` reproduces them.
+
+Speed does not cost correctness: every float is correctly rounded (the value `strtod` gives), and a
+malformed value is an error, where CEFLIB reads `12abc` as `12`.
 
 ## Tests
 

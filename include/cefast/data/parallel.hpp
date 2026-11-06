@@ -21,7 +21,7 @@ namespace detail
     // Below this the worker hand-off, variable-list copies and column concatenation cost more than
     // the parse they overlap. Measured in docs/perf/2026-11-round5-parallel.md. Test hook: the fuzz
     // target lowers it so that a small input still takes the parallel path.
-    inline std::size_t parallel_threshold = 256 * 1024;
+    inline std::size_t parallel_threshold = 48 * 1024;
 
     // Cut points for the speculative split: for k = 1..parts-1 look at byte k*size/parts and cut
     // right after the next record marker, if any. This is a raw text search, so a cut can land

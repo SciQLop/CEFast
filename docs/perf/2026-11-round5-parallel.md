@@ -106,3 +106,60 @@ interface (parse into a bare variable list instead of a `schema`, or reserve the
 destination once from the summed chunk sizes) for a gain that the wall-time
 noise cannot resolve. Left as is.
 
+
+## Round 7: persistent workers
+
+The pool removed the per-load `std::thread` start-up (median ~108 us for seven
+threads, min 89 us), so the crossover moves down a long way. Measured the same
+way as round 5, with `parallel_threshold` temporarily set to 0 so both paths
+could be timed on the same file:
+
+* `build-release/tools/bench/bench_load <file> 200 <threads>` (release -O3),
+  3 runs of 200 loads, median of the per-run minima.
+* `perf stat -e task-clock,instructions`; instructions are the stable signal on
+  this shared machine, wall is the median of three runs.
+* Synthetic files: `C1_CP_CIS-CODIF_HS_H1_CS` truncated after a record marker
+  (`;`), header kept, `!RECORDS` rewritten, so the body is exactly N KiB.
+
+### Synthetic CODIF truncations (body size sweep)
+
+| body | file | serial wall | parallel wall | speedup | insn serial/parallel |
+|---|---|---|---|---|---|
+| 16 KiB | 32 KiB | 0.12 ms | 0.14 ms | 0.86x | 1.60M / 1.72M |
+| 32 KiB | 44 KiB | 0.16 ms | 0.15 ms | 1.07x | 2.30M / 2.51M |
+| 64 KiB | 80 KiB | 0.27 ms | 0.23 ms | 1.17x | 4.37M / 4.91M |
+| 96 KiB | 115 KiB | 0.40 ms | 0.27 ms | 1.48x | 6.44M / 7.17M |
+| 128 KiB | 151 KiB | 0.49 ms | 0.35 ms | 1.40x | 8.51M / 9.28M |
+| 192 KiB | 210 KiB | 0.67 ms | 0.44 ms | 1.52x | 11.97M / 12.78M |
+| 256 KiB | 281 KiB | 0.87 ms | 0.55 ms | 1.58x | 16.12M / 16.99M |
+
+The parallel path still executes more instructions (the chunk copies and the
+concatenation), but the fixed cost that used to dominate is gone: break-even is
+at a ~30 KiB body, against ~190 KiB with threads created per load.
+
+### Corpus files
+
+| file | body | serial wall | parallel wall | speedup | insn serial/parallel |
+|---|---|---|---|---|---|
+| C1_PP_DWP | 59 KiB | 0.32 ms | 0.25 ms | 1.28x | 5.09M / 5.34M |
+| C4_CP_AUX_ESOC_MEP | 139 KiB | 0.34 ms | 0.22 ms | 1.55x | 5.72M / 6.02M |
+| C1_CP_EDI_MP | 69 KiB | 0.25 ms | 0.18 ms | 1.39x | 3.99M / 4.14M |
+| CC_CP_AUX_MAARBLE_KIR_ULF_PC35 | 231 KiB | 0.59 ms | 0.29 ms | 2.03x | 11.08M / 11.23M |
+
+Every corpus file below the old 256 KiB threshold now wins by 28-103%.
+
+### Decision
+
+`parallel_threshold` goes from 256 KiB to 48 KiB: break-even is at ~30 KiB, and
+48 KiB leaves a ~60% margin for a loaded machine while letting every corpus
+file except the tiny metadata-only ones take the fast path.
+
+Effect on `tools/ceflib/benchmark.py --runs 21` (whole corpus, default threads):
+
+| | before (256 KiB) | after (48 KiB) |
+|---|---|---|
+| total cefast | 14.8 ms | 13.0 ms |
+| total speedup vs CEFLIB | 2.43x | 2.68x |
+| per-file median | 1.48x | 1.53x |
+| per-file min | 0.95x | 1.11x |
+| per-file max | 4.26x | 5.53x |

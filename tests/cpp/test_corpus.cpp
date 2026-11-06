@@ -407,6 +407,58 @@ TEST_CASE("corpus: a parallel parse counts a record that ends at end of file")
     require_same_column(serial.variables[0], parallel.variables[0]);
 }
 
+// A comment at the end of a record line comments out the rest of that line only: the newline still
+// ends the record, so the split must not swallow it as part of the comment.
+TEST_CASE("corpus: a comment at the end of a record line still ends the record")
+{
+    const std::string text = "FILE_FORMAT_VERSION = \"CEF-2.0\"\n"
+                             "START_VARIABLE = v\n"
+                             " VALUE_TYPE = FLOAT\n"
+                             " END_VARIABLE = v\n"
+                             "DATA_UNTIL = END_DATA\n"
+                             "1.5!\n2.5\n3.5\n";
+    const forced_parallel force;
+    const auto serial = load_text_with_threads(text, 1);
+    const auto parallel = load_text_with_threads(text, 4);
+
+    REQUIRE(serial.variables.size() == 1);
+    CHECK(serial.variables[0].records == 3);
+    CHECK(parallel.variables[0].records == 3);
+    require_same_column(serial.variables[0], parallel.variables[0]);
+}
+
+TEST_CASE("corpus: parallel and serial report the same record number after a comment")
+{
+    const std::string text = "FILE_FORMAT_VERSION = \"CEF-2.0\"\n"
+                             "START_VARIABLE = v\n"
+                             " VALUE_TYPE = FLOAT\n"
+                             " END_VARIABLE = v\n"
+                             "DATA_UNTIL = END_DATA\n"
+                             "1.5!\n2.5\nx3.5\n";
+    const forced_parallel force;
+    std::string serial_error;
+    std::string parallel_error;
+    try
+    {
+        std::ignore = load_text_with_threads(text, 1);
+    }
+    catch (const cefast::parse_error& error)
+    {
+        serial_error = error.what();
+    }
+    try
+    {
+        std::ignore = load_text_with_threads(text, 4);
+    }
+    catch (const cefast::parse_error& error)
+    {
+        parallel_error = error.what();
+    }
+    REQUIRE(!serial_error.empty());
+    CHECK(serial_error.find("(record 3)") != std::string::npos);
+    CHECK(parallel_error == serial_error);
+}
+
 TEST_CASE("corpus: parallel parsing agrees with serial on a synthetic large file")
 {
     constexpr std::size_t copies = 20;

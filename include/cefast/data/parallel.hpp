@@ -63,13 +63,14 @@ namespace detail
             const char c = body[position];
             if (comment)
             {
-                if (c == '\n')
+                // A comment runs to the end of its line, the newline excluded: it may still be the
+                // marker that ends the record, so hand it to the branches below.
+                if (c != '\n')
                 {
-                    comment = false;
-                    ++line;
+                    ++position;
+                    continue;
                 }
-                ++position;
-                continue;
+                comment = false;
             }
             if (quoted)
             {

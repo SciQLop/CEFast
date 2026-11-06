@@ -83,6 +83,7 @@ Each :class:`~cefast.Variable` has:
 - :attr:`~cefast.Variable.name`, as written in the file;
 - :attr:`~cefast.Variable.value_type`, the CEF type, such as ``'FLOAT'``;
 - :attr:`~cefast.Variable.sizes`, the shape of one value, ``()`` when the file gives none;
+- :attr:`~cefast.Variable.shape`, the shape of its values;
 - :attr:`~cefast.Variable.is_nrv`, true when the values are in the header (``DATA``) instead of
   in each record;
 - :attr:`~cefast.Variable.attributes`, a :class:`dict`;

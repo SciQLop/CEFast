@@ -274,6 +274,96 @@ class TestDocstrings(unittest.TestCase):
         self.assertEqual(undocumented, [])
 
 
+REPR_FILE = b"""FILE_NAME = "demo.cef"
+FILE_FORMAT_VERSION = "CEF-2.0"
+END_OF_RECORD_MARKER = "$"
+START_META = FILE_TIME_SPAN
+   VALUE_TYPE = ISO_TIME_RANGE
+   ENTRY = 2005-06-10T00:00:00Z/2005-06-10T02:00:00Z
+END_META = FILE_TIME_SPAN
+START_META = MISSION_DESCRIPTION
+   ENTRY = "The aim of the Cluster mission is to study small-scale structures of the magnetosphere"
+   ENTRY = "and its environment in three dimensions."
+END_META = MISSION_DESCRIPTION
+START_VARIABLE = time_tags
+  VALUE_TYPE = ISO_TIME
+  UNITS = "s"
+END_VARIABLE = time_tags
+START_VARIABLE = B_vec
+  VALUE_TYPE = FLOAT
+  SIZES = 3
+  UNITS = "nT"
+  CATDESC = "Magnetic field vector"
+  FILLVAL = -1.0E31
+  DEPEND_0 = time_tags
+END_VARIABLE = B_vec
+START_VARIABLE = label
+  VALUE_TYPE = CHAR
+  SIZES = 3
+  DATA = "Bx", "By", "Bz"
+END_VARIABLE = label
+DATA_UNTIL = EOF
+2005-06-10T00:00:00Z, 1, 2, 3 $
+2005-06-10T00:00:04Z, 4, 5, 6 $
+"""
+
+
+class TestShape(unittest.TestCase):
+    def test_shape_is_the_shape_of_values(self):
+        for dataset in ("C1_CP_FGM_SPIN", "C3_CP_PEA_LERL_DEFlux", "CC_CP_AUX_MAARBLE_KIR_ULF_PC35"):
+            f = cefast.load(corpus_file(dataset))
+            for name in f:
+                self.assertEqual(f[name].shape, f[name].values.shape, (dataset, name))
+
+    def test_shape_is_documented(self):
+        self.assertTrue(has_prose(cefast.Variable.shape.__doc__))
+
+
+class TestRepr(unittest.TestCase):
+    def setUp(self):
+        self.f = cefast.load(REPR_FILE)
+
+    def test_file_repr_names_the_file_and_counts(self):
+        lines = repr(self.f).splitlines()
+        self.assertEqual(lines[0], "CEF file demo.cef")
+        self.assertEqual(lines[1], "2 records, 3 variables")
+
+    def test_file_repr_lists_variables_with_type_shape_units_and_description(self):
+        text = repr(self.f)
+        rows = {line.split()[0]: line for line in text.splitlines() if line.startswith("  ")}
+        self.assertEqual(rows["B_vec"].split()[1:5], ["FLOAT", "(2,", "3)", "nT"])
+        self.assertTrue(rows["B_vec"].endswith("Magnetic field vector"))
+        self.assertIn("header", rows["label"])
+        self.assertLess(text.index("Variables:"), text.index("Attributes:"))
+
+    def test_file_repr_shows_times_as_iso_and_cuts_long_attributes(self):
+        text = repr(self.f)
+        self.assertIn("  FILE_TIME_SPAN: 2005-06-10T00:00:00/2005-06-10T02:00:00", text)
+        description = next(line for line in text.splitlines() if "MISSION_DESCRIPTION" in line)
+        self.assertTrue(description.endswith("…"))
+        self.assertLessEqual(max(len(line) for line in text.splitlines()), 100)
+
+    def test_variable_repr(self):
+        lines = repr(self.f["B_vec"]).splitlines()
+        self.assertEqual(lines[0], "B_vec: FLOAT, shape (2, 3), record-varying")
+        self.assertIn("  UNITS: 'nT'", lines)
+        self.assertIn("  FILLVAL: -1e+31", lines)
+        self.assertEqual(repr(self.f["label"]).splitlines()[0],
+                         "label: CHAR, shape (3,), non-record-varying")
+
+    def test_str_is_repr(self):
+        self.assertEqual(str(self.f), repr(self.f))
+        self.assertEqual(str(self.f["B_vec"]), repr(self.f["B_vec"]))
+
+    def test_file_without_name_or_records(self):
+        header_only = REPR_FILE.replace(b'FILE_NAME = "demo.cef"\n', b"").split(b"2005-06-10T00:00:00Z, 1")[0]
+        header_only = header_only.replace(b"START_VARIABLE = time_tags", b"START_VARIABLE = time_tags\n  DATA = 2005-06-10T00:00:00Z")
+        header_only = header_only.replace(b"  DEPEND_0 = time_tags\n", b"  DATA = 1, 2, 3\n")
+        lines = repr(cefast.load(header_only)).splitlines()
+        self.assertEqual(lines[0], "CEF file")
+        self.assertEqual(lines[1], "3 variables")
+
+
 def has_prose(doc):
     """pybind11 writes a `name(self: ...) -> type` signature line into every docstring."""
     signature = re.compile(r"^\w+\(.*\)( -> .*)?$")

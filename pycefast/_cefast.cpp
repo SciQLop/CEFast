@@ -179,10 +179,13 @@ struct py_variable
         return result;
     }
 
-    [[nodiscard]] std::string repr() const
+    [[nodiscard]] py::tuple shape() const
     {
-        return "<cefast.Variable '" + var().name + "' " + type_name(var().type)
-            + (var().is_nrv ? " non-record-varying>" : " record-varying>");
+        const auto dims = shape_of(var());
+        py::tuple result { dims.size() };
+        for (std::size_t dim = 0; dim < dims.size(); ++dim)
+            result[dim] = py::int_(dims[dim]);
+        return result;
     }
 };
 
@@ -215,11 +218,6 @@ struct py_cef
         for (const auto& var : file->variables)
             names.append(py::str(var.name));
         return names;
-    }
-
-    [[nodiscard]] std::string repr() const
-    {
-        return "<cefast.CEF with " + std::to_string(file->variables.size()) + " variables>";
     }
 };
 
@@ -342,8 +340,7 @@ list of str
 A new :class:`dict` on each access. A single entry is the value itself, several entries are a
 :class:`list`. Text and numbers come as :class:`str`, :class:`int` and :class:`float`, an
 ``ISO_TIME`` as :class:`datetime.datetime`, an ``ISO_TIME_RANGE`` as a pair of them.
-)")
-        .def("__repr__", &py_cef::repr);
+)");
 
     py::class_<py_variable>(m, "Variable", R"(One variable of a :class:`CEF` file.
 
@@ -354,6 +351,9 @@ Get it with ``f[name]``. It keeps the file's data alive on its own.
         .def_property_readonly("value_type", &py_variable::value_type,
             "The CEF ``VALUE_TYPE``: ``'FLOAT'``, ``'DOUBLE'``, ``'INT'``, ``'BYTE'``, ``'CHAR'``, "
             "``'ISO_TIME'`` or ``'ISO_TIME_RANGE'``.")
+        .def_property_readonly("shape", &py_variable::shape,
+            "The shape of :attr:`values`, without building the array: ``(records, *sizes)``, "
+            "``(records,)`` for a scalar, ``sizes`` for a non-record-varying variable.")
         .def_property_readonly("sizes", &py_variable::sizes,
             "The CEF ``SIZES`` attribute as a tuple of ints, ``()`` when the file gives none.")
         .def_property_readonly("is_nrv", &py_variable::is_nrv,
@@ -387,8 +387,7 @@ of 2 (start, stop).
 Numeric and time arrays are views on the parsed data, not copies: writing into one changes what
 later accesses return. ``CHAR`` arrays are copied on each access. Fill values stay as written: the ``FILLVAL`` number for numeric
 variables, ``NaT`` for times.
-)")
-        .def("__repr__", &py_variable::repr);
+)");
 
     m.def(
         "load",

@@ -43,7 +43,31 @@ so there is nothing to save:
     import cefast
 
     f = cefast.load(content)
-    print(f)   # <cefast.CEF with 7 variables>
+    print(f)
+
+``print`` shows a summary: the file, its variables, then its global attributes (information
+about the mission, the instrument and the dataset). Here is the start:
+
+.. code-block:: text
+
+    CEF file C1_CP_FGM_SPIN__20050610_000000_20050610_020000_V140305.cef
+    1730 records, 7 variables
+
+    Variables:
+      time_tags__C1_CP_FGM_SPIN       ISO_TIME  (1730,)    s         Interval centred time tag
+      half_interval__C1_CP_FGM_SPIN   FLOAT     (1730,)    s         Half averaging interval length
+      B_vec_xyz_gse__C1_CP_FGM_SPIN   FLOAT     (1730, 3)  nT        Magnetic Field Vector, spin resolu…
+      B_mag__C1_CP_FGM_SPIN           FLOAT     (1730,)    nT        Magnetic Field Magnitude, spin res…
+      sc_pos_xyz_gse__C1_CP_FGM_SPIN  FLOAT     (1730, 3)  km        Position in GSE
+      range__C1_CP_FGM_SPIN           INT       (1730,)    unitless  FGM instrument range, defined on s…
+      tm__C1_CP_FGM_SPIN              INT       (1730,)    unitless  FGM telemtry mode (burst mode/norm…
+
+    Attributes:
+      FILE_NAME: 'C1_CP_FGM_SPIN__20050610_000000_20050610_020000_V140305.cef'
+      ...
+
+Each row is a variable: its name, its type, the shape of its values, its units and its
+description.
 
 To read a file from disk, give its path instead. Gzipped files (``.cef.gz``) work the same way:
 
@@ -61,18 +85,20 @@ A CEF file holds **variables**. You use it like a dictionary of variables, in fi
 
 .. code-block:: python
 
-    for variable_name in f:
-        print(f[variable_name])
+    print(len(f))                                   # 7
+    print("B_vec_xyz_gse__C1_CP_FGM_SPIN" in f)     # True
+    print(f["B_vec_xyz_gse__C1_CP_FGM_SPIN"])
+
+Printing a variable shows its type, its shape and its attributes:
 
 .. code-block:: text
 
-    <cefast.Variable 'time_tags__C1_CP_FGM_SPIN' ISO_TIME record-varying>
-    <cefast.Variable 'half_interval__C1_CP_FGM_SPIN' FLOAT record-varying>
-    <cefast.Variable 'B_vec_xyz_gse__C1_CP_FGM_SPIN' FLOAT record-varying>
-    <cefast.Variable 'B_mag__C1_CP_FGM_SPIN' FLOAT record-varying>
-    <cefast.Variable 'sc_pos_xyz_gse__C1_CP_FGM_SPIN' FLOAT record-varying>
-    <cefast.Variable 'range__C1_CP_FGM_SPIN' INT record-varying>
-    <cefast.Variable 'tm__C1_CP_FGM_SPIN' INT record-varying>
+    B_vec_xyz_gse__C1_CP_FGM_SPIN: FLOAT, shape (1730, 3), record-varying
+      PARAMETER_TYPE: 'Data'
+      ENTITY: 'Magnetic_Field'
+      ...
+      UNITS: 'nT'
+      ...
 
 Archive variable names end with ``__`` and the dataset name. CEFast keeps them as written.
 

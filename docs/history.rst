@@ -2,6 +2,14 @@
 History
 =======
 
+Unreleased
+==========
+
+- ``print`` of a file shows a summary: name, record count, a table of the variables (type, shape,
+  units, description) and the global attributes. ``print`` of a variable shows its type, shape
+  and attributes.
+- ``Variable.shape``: the shape of the values, without building the array.
+
 0.1.1 (2026-11-06)
 ==================
 

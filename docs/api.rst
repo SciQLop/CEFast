@@ -14,7 +14,7 @@ This page lists everything ``cefast`` offers. For explanations and examples, see
     :special-members: __getitem__
 
 .. autoclass:: Variable
-    :members: name, value_type, sizes, is_nrv, attributes, values
+    :members: name, value_type, sizes, shape, is_nrv, attributes, values
 
 .. autoexception:: ParseError
 

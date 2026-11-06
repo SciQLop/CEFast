@@ -335,6 +335,18 @@ namespace
     return cefast::load(std::span<const char> { text.data(), text.size() }, options);
 }
 
+// Makes even a tiny input take the parallel path, so a test does not need a megabyte of records.
+struct forced_parallel
+{
+    forced_parallel() { cefast::detail::parallel_threshold = 0; }
+    ~forced_parallel() { cefast::detail::parallel_threshold = saved; }
+    forced_parallel(const forced_parallel&) = delete;
+    forced_parallel& operator=(const forced_parallel&) = delete;
+
+private:
+    const std::size_t saved = cefast::detail::parallel_threshold;
+};
+
 // One dataset's records repeated until the file crosses the parallel threshold, without shipping
 // megabytes of test data. The trailer (!RECORDS and the DATA_UNTIL value) is dropped so the copies
 // are pure record text.
@@ -373,6 +385,26 @@ TEST_CASE("corpus: parallel and serial loads agree on every file")
             require_same_column(serial.variables[index], parallel.variables[index]);
         }
     }
+}
+
+TEST_CASE("corpus: a parallel parse counts a record that ends at end of file")
+{
+    // A truncated data section: the last record runs to EOF without a record marker.
+    const std::string text = "FILE_FORMAT_VERSION = \"CEF-2.0\"\n"
+                             "END_OF_RECORD_MARKER = \"$\"\n"
+                             "START_VARIABLE = v\n"
+                             " VALUE_TYPE = FLOAT\n"
+                             " END_VARIABLE = v\n"
+                             "DATA_UNTIL = END_DATA\n"
+                             "1.5$\n2.5$\n3.5";
+    const forced_parallel force;
+    const auto serial = load_text_with_threads(text, 1);
+    const auto parallel = load_text_with_threads(text, 4);
+
+    REQUIRE(serial.variables.size() == 1);
+    CHECK(serial.variables[0].records == 3);
+    CHECK(parallel.variables[0].records == 3);
+    require_same_column(serial.variables[0], parallel.variables[0]);
 }
 
 TEST_CASE("corpus: parallel parsing agrees with serial on a synthetic large file")

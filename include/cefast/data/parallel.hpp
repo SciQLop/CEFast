@@ -16,8 +16,9 @@ namespace cefast
 {
 namespace detail
 {
-    // Below this the thread start-up costs more than the parse.
-    inline constexpr std::size_t parallel_threshold = 512 * 1024;
+    // Below this the thread start-up costs more than the parse. Test hook: the fuzz target lowers
+    // it so that a small input still takes the parallel path.
+    inline std::size_t parallel_threshold = 512 * 1024;
 
     inline std::size_t default_threads() noexcept
     {
@@ -115,6 +116,10 @@ namespace detail
                 content = true;
             ++position;
         }
+        // A record that ends at end of file without a marker is still a record: the serial scanner
+        // counts it, so the split must too or `variable.records` depends on the thread count.
+        if (content)
+            ++records;
         if (chunk_begin < body.size() || chunks.empty())
             chunks.push_back({ chunk_begin, body.size(), chunk_line, chunk_record });
         total_records = records;

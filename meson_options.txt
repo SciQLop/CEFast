@@ -1,3 +1,4 @@
 option('with_tests', type : 'boolean', value : true, description : 'Build tests')
 option('python', type : 'boolean', value : true, description : 'Build the cefast Python module')
 option('with_benchmarks', type : 'boolean', value : false, description : 'Build the profiling driver')
+option('fuzzing', type : 'boolean', value : false, description : 'Build the libFuzzer targets (requires clang)')

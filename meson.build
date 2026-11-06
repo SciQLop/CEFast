@@ -56,3 +56,7 @@ endif
 if get_option('with_tests')
     subdir('tests')
 endif
+
+if get_option('fuzzing')
+    subdir('tools/fuzz')
+endif

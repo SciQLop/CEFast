@@ -67,6 +67,20 @@ START_VARIABLE = v
 }
 }
 
+TEST_CASE("records: an oversized !RECORDS hint does not size the columns", "[records]")
+{
+    // The hint only drives an initial reservation; a number from the file must never be trusted as
+    // an allocation size (20 digits overflows size_t, 1e8 would reserve gigabytes).
+    const auto huge = load(header("", one_float)
+        + "!RECORDS= 999999999999999999999999\n1.5\n2.5\nEND_DATA\n");
+    REQUIRE(huge.file.variables.size() == 1);
+    CHECK(huge.file.variables[0].records == 2);
+
+    const auto wrong = load(header("", one_float) + "!RECORDS= 100000000\n1.5\n2.5\nEND_DATA\n");
+    REQUIRE(wrong.file.variables.size() == 1);
+    CHECK(wrong.file.variables[0].records == 2);
+}
+
 TEST_CASE("records: leading plus on a float record", "[records]")
 {
     const auto result = load(header("", one_float) + "+1.5\n-2.5\nEND_DATA\n");

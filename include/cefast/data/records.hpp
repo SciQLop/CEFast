@@ -63,16 +63,21 @@ namespace detail
         while (
             !rest.empty() && (rest.front() == '=' || rest.front() == ' ' || rest.front() == '\t'))
             rest.remove_prefix(1);
+        // A record takes at least one byte, so a hint beyond the data length is wrong; saturating
+        // there keeps a corrupt (or hostile) number out of the reservation arithmetic.
+        const std::size_t limit = data.size();
         std::size_t value = 0;
-        std::size_t digits = 0;
         for (const auto c : rest)
         {
             if (c < '0' || c > '9')
                 break;
+            if (value > limit / 10)
+                return limit;
             value = value * 10 + static_cast<std::size_t>(c - '0');
-            ++digits;
+            if (value > limit)
+                return limit;
         }
-        return digits == 0 ? 0 : value;
+        return value;
     }
 
     // The terminator is the text starting a line (spec 2.3), not the whole line: "END_DATA ! end"

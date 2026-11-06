@@ -300,6 +300,12 @@ PYBIND11_MODULE(_cefast, m)
 {
     m.doc() = "Fast reader for ESA's Cluster Exchange Format (CEF 2.0)";
 
+    // pybind11 looks numpy's C API up once, releasing and re-acquiring the GIL around it. Under
+    // Pyodide with JSPI, that re-acquire crashed ("memory access out of bounds") when the first
+    // array was made in a later runPythonAsync call than the import; at import time it is safe,
+    // as register_exception's own one-time setup below shows. So look it up now.
+    (void)py::dtype::of<float>();
+
     auto parse_error
         = py::register_exception<cefast::parse_error>(m, "ParseError", PyExc_ValueError);
     parse_error.attr("__doc__") = R"(A malformed CEF file.

@@ -95,7 +95,7 @@ jobs:
       # campaign. One process per target so a finding fails the job with its artifact.
       - name: Fuzz
         run: |
-          for target in load time float lexer; do
+          for target in load time float lexer lexer_diff; do
             max_len=65536
             test "$target" = load && max_len=262144
             mkdir -p "$RUNNER_TEMP/artifacts/$target"

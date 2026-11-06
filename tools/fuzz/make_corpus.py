@@ -92,12 +92,13 @@ def number_tokens(text: str) -> list[str]:
     ]
 
 
-def seed_load_and_lexer(load_dir: Path, lexer_dir: Path) -> None:
+def seed_load_and_lexer(load_dir: Path, lexer_dirs: list[Path]) -> None:
     for path in sorted((RESOURCES / "csa").glob("*.cef")):
         data = path.read_bytes()
         write(load_dir, path.name, data)
         write(load_dir, path.name + ".head", data[:HEADER_SEED_BYTES])
-        write(lexer_dir, path.name + ".head", data[:HEADER_SEED_BYTES])
+        for lexer_dir in lexer_dirs:
+            write(lexer_dir, path.name + ".head", data[:HEADER_SEED_BYTES])
     for path in sorted((RESOURCES / "fixtures").rglob("*")):
         if not path.is_file():
             continue
@@ -110,7 +111,8 @@ def seed_load_and_lexer(load_dir: Path, lexer_dir: Path) -> None:
             except (OSError, EOFError):
                 pass  # truncated.cef.gz is a seed as-is, not a decompressible one
         elif b"DATA_UNTIL" in data:
-            write(lexer_dir, name, data)
+            for lexer_dir in lexer_dirs:
+                write(lexer_dir, name, data)
 
 
 def seed_time(time_dir: Path) -> None:
@@ -141,17 +143,20 @@ def main() -> None:
         raise SystemExit(
             "the CSA corpus is missing: run python -I tools/fetch_csa_corpus.py"
         )
-    for name in ("load", "time", "float", "lexer"):
+    for name in ("load", "time", "float", "lexer", "lexer_diff"):
         directory = arguments.output / name
         if directory.exists():
             shutil.rmtree(directory)
         directory.mkdir(parents=True)
-    seed_load_and_lexer(arguments.output / "load", arguments.output / "lexer")
+    # The differential target takes exactly the lexer seeds: both sides read the same input.
+    lexer_dirs = [arguments.output / "lexer", arguments.output / "lexer_diff"]
+    seed_load_and_lexer(arguments.output / "load", lexer_dirs)
     for index, seed in enumerate(LEXER_SEEDS):
-        write(arguments.output / "lexer", f"lexer{index}", seed.encode())
+        for lexer_dir in lexer_dirs:
+            write(lexer_dir, f"lexer{index}", seed.encode())
     seed_time(arguments.output / "time")
     seed_float(arguments.output / "float")
-    for name in ("load", "time", "float", "lexer"):
+    for name in ("load", "time", "float", "lexer", "lexer_diff"):
         count = len(list((arguments.output / name).iterdir()))
         print(f"{name}: {count} seeds in {arguments.output / name}")
 

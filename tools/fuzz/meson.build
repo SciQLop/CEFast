@@ -7,7 +7,7 @@ endif
 # readable report instead of a wrong answer.
 fuzz_sanitizers = ['-fsanitize=fuzzer,address,undefined', '-fno-omit-frame-pointer']
 
-foreach target : ['load', 'time', 'float', 'lexer']
+foreach target : ['load', 'time', 'float', 'lexer', 'lexer_diff']
     executable(
         'fuzz_' + target,
         'fuzz_' + target + '.cpp',

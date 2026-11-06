@@ -2,6 +2,7 @@ import gc
 import gzip
 import os
 import pathlib
+import re
 import signal
 import sys
 import time
@@ -249,6 +250,35 @@ class TestProcesses(unittest.TestCase):
                 self.fail("the forked child did not finish within 30 s")
             time.sleep(0.01)
         self.assertEqual(os.waitstatus_to_exitcode(status), 0)
+
+
+class TestDocstrings(unittest.TestCase):
+    """The API reference page of the documentation is generated from these docstrings."""
+
+    def test_public_objects_are_documented(self):
+        objects = {
+            "cefast": cefast,
+            "load": cefast.load,
+            "ParseError": cefast.ParseError,
+            "CEF": cefast.CEF,
+            "Variable": cefast.Variable,
+        }
+        objects.update({f"CEF.{name}": getattr(cefast.CEF, name) for name in ("keys", "attributes")})
+        objects.update(
+            {
+                f"Variable.{name}": getattr(cefast.Variable, name)
+                for name in ("name", "value_type", "sizes", "is_nrv", "attributes", "values")
+            }
+        )
+        undocumented = [name for name, obj in objects.items() if not has_prose(obj.__doc__)]
+        self.assertEqual(undocumented, [])
+
+
+def has_prose(doc):
+    """pybind11 writes a `name(self: ...) -> type` signature line into every docstring."""
+    signature = re.compile(r"^\w+\(.*\)( -> .*)?$")
+    lines = (line.strip() for line in (doc or "").splitlines())
+    return any(line and not signature.match(line) for line in lines)
 
 
 if __name__ == "__main__":

@@ -300,24 +300,88 @@ PYBIND11_MODULE(_cefast, m)
 {
     m.doc() = "Fast reader for ESA's Cluster Exchange Format (CEF 2.0)";
 
-    py::register_exception<cefast::parse_error>(m, "ParseError", PyExc_ValueError);
+    auto parse_error
+        = py::register_exception<cefast::parse_error>(m, "ParseError", PyExc_ValueError);
+    parse_error.attr("__doc__") = R"(A malformed CEF file.
 
-    py::class_<py_cef>(m, "CEF")
-        .def("__getitem__", &py_cef::getitem, py::arg("name"))
+The message names the file, the line and, inside the data section, the record::
+
+    broken.cef:214: expected 31 values, got 30 (record 12)
+
+A subclass of :class:`ValueError`.
+)";
+
+    py::class_<py_cef>(m, "CEF", R"(A loaded CEF file, returned by :func:`load`.
+
+Behaves like a read-only dictionary of :class:`Variable`, in file order::
+
+    f = cefast.load("file.cef")
+    len(f), list(f), "B_mag" in f
+    f["B_mag"].values
+)")
+        .def("__getitem__", &py_cef::getitem, py::arg("name"),
+            "The variable with that name. Raises :class:`KeyError` when there is none.")
         .def("__contains__", &py_cef::contains, py::arg("name"))
         .def("__iter__", [](const py_cef& self) { return py::iter(self.keys()); })
         .def("__len__", &py_cef::len)
-        .def("keys", &py_cef::keys)
-        .def_property_readonly("attributes", &py_cef::attributes)
+        .def("keys", &py_cef::keys, R"(The variable names, in file order.
+
+Returns
+-------
+list of str
+)")
+        .def_property_readonly("attributes", &py_cef::attributes,
+            R"(The global attributes: the file's metadata blocks and global entries.
+
+A new :class:`dict` on each access. A single entry is the value itself, several entries are a
+:class:`list`. Text and numbers come as :class:`str`, :class:`int` and :class:`float`, an
+``ISO_TIME`` as :class:`datetime.datetime`, an ``ISO_TIME_RANGE`` as a pair of them.
+)")
         .def("__repr__", &py_cef::repr);
 
-    py::class_<py_variable>(m, "Variable")
-        .def_property_readonly("name", &py_variable::name)
-        .def_property_readonly("value_type", &py_variable::value_type)
-        .def_property_readonly("sizes", &py_variable::sizes)
-        .def_property_readonly("is_nrv", &py_variable::is_nrv)
-        .def_property_readonly("attributes", &py_variable::attributes)
-        .def_property_readonly("values", &py_variable::values)
+    py::class_<py_variable>(m, "Variable", R"(One variable of a :class:`CEF` file.
+
+Get it with ``f[name]``. It keeps the file's data alive on its own.
+)")
+        .def_property_readonly(
+            "name", &py_variable::name, "The variable name, as written in the file.")
+        .def_property_readonly("value_type", &py_variable::value_type,
+            "The CEF ``VALUE_TYPE``: ``'FLOAT'``, ``'DOUBLE'``, ``'INT'``, ``'BYTE'``, ``'CHAR'``, "
+            "``'ISO_TIME'`` or ``'ISO_TIME_RANGE'``.")
+        .def_property_readonly("sizes", &py_variable::sizes,
+            "The CEF ``SIZES`` attribute as a tuple of ints, ``()`` when the file gives none.")
+        .def_property_readonly("is_nrv", &py_variable::is_nrv,
+            "True for a non-record-varying variable: its values are in the header (``DATA``), "
+            "not in each record.")
+        .def_property_readonly("attributes", &py_variable::attributes,
+            R"(The variable attributes other than ``VALUE_TYPE``, ``SIZES`` and ``DATA``.
+
+A new :class:`dict` on each access, with the same value rules as :attr:`CEF.attributes`.
+``FILLVAL`` is a number for numeric variables.
+)")
+        .def_property_readonly("values", &py_variable::values,
+            R"(The values, as a :class:`numpy.ndarray`.
+
+A record-varying variable has shape ``(records, *sizes)``, and ``(records,)`` when it is a
+scalar. A non-record-varying variable has shape ``sizes``. An ``ISO_TIME_RANGE`` gets a last axis
+of 2 (start, stop).
+
+==================  ======================================
+``value_type``      dtype
+==================  ======================================
+``FLOAT``           ``float32``
+``DOUBLE``          ``float64``
+``INT``             ``int32``
+``BYTE``            ``uint8``
+``ISO_TIME``        ``datetime64[ns]``
+``ISO_TIME_RANGE``  ``datetime64[ns]``
+``CHAR``            numpy unicode string
+==================  ======================================
+
+Numeric and time arrays are views on the parsed data, not copies: writing into one changes what
+later accesses return. ``CHAR`` arrays are copied on each access. Fill values stay as written: the ``FILLVAL`` number for numeric
+variables, ``NaT`` for times.
+)")
         .def("__repr__", &py_variable::repr);
 
     m.def(
@@ -330,6 +394,35 @@ PYBIND11_MODULE(_cefast, m)
         },
         py::arg("source"), py::kw_only(), py::arg("include_paths") = py::tuple { },
         py::arg("include_resolver") = py::none(), py::arg("threads") = 0,
-        "Load a CEF file from a path, bytes, bytearray or memoryview. threads=0 picks a count "
-        "from the machine, 1 parses serially, N uses at most N threads.");
+        R"(Load a CEF 2.0 file.
+
+Parameters
+----------
+source : str, os.PathLike, bytes, bytearray or memoryview
+    A path, or the content of a file. Gzip is detected from the content, not the name.
+include_paths : sequence of str or os.PathLike, optional
+    Directories searched for ``INCLUDE`` files, after the directory of the file being read.
+include_resolver : callable, optional
+    Called first with each ``INCLUDE`` name. Returns the included text as a :class:`str`, or
+    ``None`` to fall back to the directories.
+threads : int, optional
+    ``0`` (the default) picks a count from the machine, ``1`` parses serially, ``N`` uses at
+    most ``N`` threads. The result is the same either way.
+
+Returns
+-------
+CEF
+
+Raises
+------
+ParseError
+    The file cannot be read, or is malformed. The message names the file, the line and, in the
+    data section, the record.
+
+Notes
+-----
+The GIL is released while the file is parsed. ``INCLUDE`` names are looked up with
+``include_resolver``, then in the directory of the file, then in ``include_paths``, then in the
+``CEFPATH`` environment variable, then in the current directory.
+)");
 }

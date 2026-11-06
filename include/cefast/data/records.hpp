@@ -16,6 +16,14 @@
 #include <cefast/model.hpp>
 #include <cefast/values.hpp>
 
+// Inline everything a hot loop calls: GCC's own inlining choices for the record fast path swing its
+// cost by 10-20 % with unrelated edits.
+#if defined(__GNUC__)
+#define CEFAST_FLATTEN [[gnu::flatten]]
+#else
+#define CEFAST_FLATTEN
+#endif
+
 namespace cefast
 {
 namespace detail
@@ -663,7 +671,7 @@ namespace detail
         // per-value work is skip, parse, store, skip, one compare. False when the record has to go
         // through the state machine instead.
         template <typename T, typename Convert>
-        [[nodiscard]] bool fast_column(column_state& target, T fill, Convert convert,
+        [[nodiscard]] CEFAST_FLATTEN bool fast_column(column_state& target, T fill, Convert convert,
             std::size_t count, bool ends_record, std::size_t& position, std::size_t& local_line,
             bool multi_line)
         {

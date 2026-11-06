@@ -63,3 +63,47 @@ jobs:
       - name: Test log
         if: failure()
         run: cat build-asan/meson-logs/testlog.txt
+
+  fuzz:
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+      - name: Install build tools
+        run: pip install meson ninja
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Restore the CSA corpus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: tests/resources/csa
+          key: csa-corpus-${{ hashFiles('tests/resources/csa_manifest.json') }}
+      - name: Download the CSA corpus
+        run: python -I tools/fetch_csa_corpus.py
+      - name: Configure
+        run: meson setup build-fuzz -Dpython=false -Dwith_tests=false -Dfuzzing=true -Dbuildtype=debugoptimized
+      - name: Compile
+        run: ninja -C build-fuzz
+      - name: Seeds
+        run: python3 tools/fuzz/make_corpus.py --output "$RUNNER_TEMP/corpus"
+      # A short run keeps the job cheap: it is a regression gate for the corpus, not a
+      # campaign. One process per target so a finding fails the job with its artifact.
+      - name: Fuzz
+        run: |
+          for target in load time float lexer; do
+            max_len=65536
+            test "$target" = load && max_len=262144
+            mkdir -p "$RUNNER_TEMP/artifacts/$target"
+            ./build-fuzz/tools/fuzz/fuzz_$target "$RUNNER_TEMP/corpus/$target" \
+              -dict=tools/fuzz/cef.dict -max_total_time=60 -max_len=$max_len \
+              -rss_limit_mb=2048 \
+              -artifact_prefix="$RUNNER_TEMP/artifacts/$target/"
+          done
+      - name: Fuzz artifacts
+        if: failure()
+        run: find "$RUNNER_TEMP/artifacts" -type f -exec sh -c 'echo "== $1"; xxd "$1" | head -40' _ {} \;

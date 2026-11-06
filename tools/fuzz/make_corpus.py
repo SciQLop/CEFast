@@ -144,7 +144,7 @@ def main() -> None:
         )
     # Seeds are added next to what the fuzzers grew there, never by wiping it: the default output is
     # the corpus libFuzzer keeps growing between campaigns.
-    for name in ("load", "time", "float", "lexer", "lexer_diff"):
+    for name in ("load", "time", "float", "lexer", "lexer_diff", "records_diff"):
         (arguments.output / name).mkdir(parents=True, exist_ok=True)
     # The differential target takes exactly the lexer seeds: both sides read the same input.
     lexer_dirs = [arguments.output / "lexer", arguments.output / "lexer_diff"]
@@ -154,7 +154,7 @@ def main() -> None:
             write(lexer_dir, f"lexer{index}", seed.encode())
     seed_time(arguments.output / "time")
     seed_float(arguments.output / "float")
-    for name in ("load", "time", "float", "lexer", "lexer_diff"):
+    for name in ("load", "time", "float", "lexer", "lexer_diff", "records_diff"):
         count = len(list((arguments.output / name).iterdir()))
         print(f"{name}: {count} inputs in {arguments.output / name}")
 

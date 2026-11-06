@@ -78,3 +78,31 @@ Effect on `tools/ceflib/benchmark.py --runs 7` (whole corpus, default threads):
 | per-file median | 1.24x | 1.25x |
 | per-file min | 0.83x | 0.88x |
 | per-file max | 3.71x | 4.22x |
+
+## What the parallel path spends outside the parse
+
+`perf record -g -e cycles:u` on 200 default-thread loads, self time as a share
+of all samples (the worker threads are counted, so this is a share of
+task-clock, not of wall time):
+
+| symbol | CODIF H1 (1.7 MB) | PEA (847 KB) |
+|---|---|---|
+| `record_scanner::run` | 41.3% | 38.8% |
+| `record_scanner::add` | 40.6% | 17.5% |
+| `parse_float<float>` | 11.1% | - |
+| `parse_records_parallel` (self: cuts, setup, concatenation) | 1.7% | 0.1% |
+| `__do_uninit_fill_n<schema*>` (the chunk schema copies) | 0.33% | 1.36% |
+| `schema::~schema` (freeing those copies) | 0.14% | 0.53% |
+| `__memmove_avx_unaligned_erms` (column concatenation) | 0.21% | 1.08% |
+| `record_scanner` constructor | 0.13% | 0.20% |
+
+So the per-chunk variable-list copies, their destruction, the concatenation and
+the thread setup together are ~2.5% of task-clock on the largest file and ~3.2%
+on the densest one - below the 5% bar set for round 5, and close to the noise
+floor of the sweep above. They are also paid by the main thread before and after
+the parallel region, which is why they still show as a small wall-time tail
+(roughly 5-10% of a PEA load), but removing them would mean a different scanner
+interface (parse into a bare variable list instead of a `schema`, or reserve the
+destination once from the summed chunk sizes) for a gain that the wall-time
+noise cannot resolve. Left as is.
+

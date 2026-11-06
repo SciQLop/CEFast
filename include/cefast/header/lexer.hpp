@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cstddef>
 #include <deque>
 #include <memory>
@@ -93,6 +94,13 @@ namespace detail
         tokens.push_back({ piece, false });
     }
 
+    // Whether append_value accepts `piece`: a piece that opens with a quote has to close on it.
+    [[nodiscard]] inline bool is_value(std::string_view piece) noexcept
+    {
+        return piece.empty() || piece.front() != '"'
+            || (piece.size() >= 2 && piece.back() == '"');
+    }
+
     // Values are comma-separated outside quotes; quoted text is verbatim (CEF has no escape
     // syntax).
     inline void split_values(std::vector<token>& tokens, std::string_view text,
@@ -119,35 +127,110 @@ namespace detail
 
     struct scanned_line
     {
+        // Comment dropped, trailing whitespace and a trailing continuation marker removed.
         std::string_view text;
         bool continued;
+        // Offset of the '=' that separates key from values in `text`, npos when there is none.
+        std::size_t equals = std::string_view::npos;
+        // Offset just past the last value separator: where the trailing value starts.
+        std::size_t values_from = 0;
     };
 
-    // Drops the comment (a '!' outside quotes), the trailing whitespace and a trailing continuation
-    // marker. A quote left open at the end of the line is an error: CEF only continues lines with
-    // '\'.
-    inline scanned_line scan_line(
-        std::string_view line, std::string_view source, std::size_t line_number)
+    // One merged pass over the line: the bytes the grammar cares about ('"', '!', '=' before the
+    // key is known, ',' after it) are located with memchr-backed find() calls that each resume
+    // where the previous one stopped. Text between them is skipped wholesale and quoted spans are
+    // never walked byte by byte.
+    //
+    // The comment ends the line (a '!' outside quotes), the '=' outside quotes ends the key, and a
+    // quote left open at the end of the line is an error: CEF only continues lines with '\'.
+    //
+    // When `values` is given the value tokens are appended as their commas are met, which is only
+    // valid for a line that is not continued: the caller passes it for a line that starts a
+    // logical line and rewinds if that line turns out to continue.
+    inline scanned_line scan_line(std::string_view line, std::string_view source,
+        std::size_t line_number, std::vector<token>* values = nullptr)
     {
+        constexpr auto npos = std::string_view::npos;
         bool quoted = false;
-        std::size_t comment = std::string_view::npos;
-        for (std::size_t i = 0; i < line.size(); ++i)
+        std::size_t comment = npos;
+        std::size_t equals = npos;
+        std::size_t value_start = 0;
+        std::size_t values_from = 0;
+        // A value the caller will reject. Deferred: the key check and the end-of-line quote check
+        // come first in the old lexer, so they have to come first here too.
+        bool bad_value = false;
+
+        // Cached next positions, one per byte of interest.
+        std::size_t next_quote = line.find('"');
+        std::size_t next_bang = line.find('!');
+        std::size_t next_equals = line.find('=');
+        std::size_t next_comma = npos;
+
+        while (true)
         {
-            if (line[i] == '"')
-                quoted = !quoted;
-            else if (!quoted && line[i] == '!')
-            {
-                comment = i;
+            const std::size_t next = std::min(
+                { next_quote, next_bang, equals == npos ? next_equals : next_comma });
+            if (next == npos)
                 break;
+            if (line[next] == '"')
+            {
+                quoted = !quoted;
+                next_quote = line.find('"', next + 1);
+            }
+            else if (line[next] == '!')
+            {
+                if (quoted)
+                    next_bang = line.find('!', next + 1);
+                else
+                {
+                    comment = next;
+                    break;
+                }
+            }
+            else if (line[next] == '=')
+            {
+                if (quoted)
+                    next_equals = line.find('=', next + 1);
+                else
+                {
+                    equals = next;
+                    value_start = next + 1;
+                    values_from = value_start;
+                    next_comma = line.find(',', value_start);
+                }
+            }
+            else if (quoted)
+                next_comma = line.find(',', next + 1);
+            else
+            {
+                if (values != nullptr)
+                {
+                    const auto piece = trim(line.substr(value_start, next - value_start));
+                    if (is_value(piece))
+                        append_value(*values, piece, source, line_number);
+                    else
+                        bad_value = true;
+                }
+                value_start = next + 1;
+                values_from = value_start;
+                next_comma = line.find(',', next + 1);
             }
         }
+
         if (quoted)
             throw parse_error(source, line_number, "unterminated quote");
-        auto visible
-            = trim_right(line.substr(0, comment == std::string_view::npos ? line.size() : comment));
-        if (!visible.empty() && visible.back() == '\\')
-            return { trim_right(visible.substr(0, visible.size() - 1)), true };
-        return { visible, false };
+        auto visible = trim_right(line.substr(0, comment == npos ? line.size() : comment));
+        const bool continued = !visible.empty() && visible.back() == '\\';
+        if (continued)
+            visible = trim_right(visible.substr(0, visible.size() - 1));
+        else if (values != nullptr && !visible.empty())
+        {
+            if (equals == npos || trim(visible.substr(0, equals)).empty())
+                throw parse_error(source, line_number, "expected KEY = value");
+            if (bad_value)
+                throw parse_error(source, line_number, "unterminated quote");
+        }
+        return { visible, continued, equals, values_from };
     }
 
     // Offset of the '=' that separates key and values, ignoring the ones inside quotes.
@@ -194,48 +277,78 @@ inline lexed_header lex_header(
         line_number = next_line;
         const auto newline = text.find('\n', offset);
         const auto end = newline == std::string_view::npos ? text.size() : newline;
-        const auto scanned
-            = detail::scan_line(text.substr(offset, end - offset), source, line_number);
-        if (!continued)
+        const bool starts_line = !continued;
+        const auto first_token = result.tokens.size();
+        const auto scanned = detail::scan_line(text.substr(offset, end - offset), source,
+            line_number, starts_line ? &result.tokens : nullptr);
+        if (!starts_line)
+        {
+            result.joined.back().append(scanned.text);
+            logical = result.joined.back();
+        }
+        else
         {
             logical_line = line_number;
             if (scanned.continued)
             {
+                // The tokens of this physical line are dropped: the values are split from the
+                // joined logical line once it is complete.
+                result.tokens.resize(first_token);
                 result.joined.emplace_back(scanned.text);
                 logical = result.joined.back();
             }
             else
                 logical = scanned.text;
         }
-        else
-        {
-            result.joined.back().append(scanned.text);
-            logical = result.joined.back();
-        }
         continued = scanned.continued;
         if (!continued)
         {
-            auto visible = detail::trim_left(logical);
-            if (!visible.empty())
+            // A line that is not continued is the whole logical line: scan_line already found its
+            // key separator and its value tokens. Only a joined line needs the two-step split.
+            bool recorded = false;
+            if (starts_line)
             {
-                const auto equals = detail::find_equals(visible);
-                const auto key = detail::trim(visible.substr(0, equals));
-                if (equals == std::string_view::npos || key.empty())
-                    throw parse_error(source, logical_line, "expected KEY = value");
-                result.keys.emplace_back(detail::upper(key));
-                const auto first = result.tokens.size();
-                detail::split_values(
-                    result.tokens, visible.substr(equals + 1), source, logical_line);
-                pending.push_back(
-                    { result.keys.back(), first, result.tokens.size() - first, logical_line });
-                found = pending.back().key == "DATA_UNTIL";
-                next_line = line_number + 1;
-                if (found)
+                // scan_line has already rejected an empty or missing key for a line it could lex
+                // in one pass, with the same message the joined path raises below.
+                if (!scanned.text.empty())
                 {
-                    result.data_offset = newline == std::string_view::npos ? text.size() : end + 1;
-                    result.data_line = next_line;
-                    break;
+                    result.keys.emplace_back(detail::upper(
+                        detail::trim(scanned.text.substr(0, scanned.equals))));
+                    detail::append_value(result.tokens,
+                        detail::trim(scanned.text.substr(scanned.values_from)), source,
+                        logical_line);
+                    pending.push_back({ result.keys.back(), first_token,
+                        result.tokens.size() - first_token, logical_line });
+                    found = pending.back().key == "DATA_UNTIL";
+                    recorded = true;
                 }
+            }
+            else
+            {
+                const auto visible = detail::trim_left(logical);
+                if (!visible.empty())
+                {
+                    const auto equals = detail::find_equals(visible);
+                    const auto key = detail::trim(visible.substr(0, equals));
+                    if (equals == std::string_view::npos || key.empty())
+                        throw parse_error(source, logical_line, "expected KEY = value");
+                    result.keys.emplace_back(detail::upper(key));
+                    const auto first = result.tokens.size();
+                    detail::split_values(
+                        result.tokens, visible.substr(equals + 1), source, logical_line);
+                    pending.push_back(
+                        { result.keys.back(), first, result.tokens.size() - first, logical_line });
+                    found = pending.back().key == "DATA_UNTIL";
+                    recorded = true;
+                }
+            }
+            if (recorded)
+                next_line = line_number + 1;
+            if (found)
+            {
+                result.data_offset = newline == std::string_view::npos ? text.size() : end + 1;
+                result.data_line = next_line;
+                break;
             }
         }
         if (newline == std::string_view::npos)

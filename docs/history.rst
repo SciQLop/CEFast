@@ -9,6 +9,8 @@ Unreleased
   units, description) and the global attributes. ``print`` of a variable shows its type, shape
   and attributes.
 - ``Variable.shape``: the shape of the values, without building the array.
+- ``CEF`` is a full read-only mapping: ``values()``, ``items()`` and ``get()`` work, and
+  ``isinstance(f, collections.abc.Mapping)`` is true.
 
 0.1.1 (2026-11-06)
 ==================

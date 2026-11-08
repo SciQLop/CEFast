@@ -319,6 +319,32 @@ class TestShape(unittest.TestCase):
         self.assertTrue(has_prose(cefast.Variable.shape.__doc__))
 
 
+class TestMapping(unittest.TestCase):
+    def setUp(self):
+        self.f = cefast.load(REPR_FILE)
+
+    def test_is_a_mapping(self):
+        import collections.abc
+        self.assertIsInstance(self.f, collections.abc.Mapping)
+
+    def test_items_and_values_in_file_order(self):
+        self.assertEqual([name for name, _ in self.f.items()], ["time_tags", "B_vec", "label"])
+        self.assertEqual([v.name for v in self.f.values()], ["time_tags", "B_vec", "label"])
+        self.assertEqual([v.name for _, v in self.f.items()], list(self.f.keys()))
+
+    def test_get(self):
+        self.assertEqual(self.f.get("B_vec").name, "B_vec")
+        self.assertIsNone(self.f.get("missing"))
+        self.assertEqual(self.f.get("missing", 42), 42)
+
+    def test_dict_conversion(self):
+        self.assertEqual(list(dict(self.f)), ["time_tags", "B_vec", "label"])
+
+    def test_still_read_only(self):
+        with self.assertRaises(TypeError):
+            self.f["x"] = None
+
+
 class TestRepr(unittest.TestCase):
     def setUp(self):
         self.f = cefast.load(REPR_FILE)

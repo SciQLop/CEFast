@@ -78,6 +78,14 @@ A :class:`~cefast.CEF` works like a read-only dictionary of variables, in file o
     print("density" in f)      # True
     density = f["density"]
 
+It is a :class:`collections.abc.Mapping`, so ``values()``, ``items()`` and ``get()`` work too:
+
+.. code-block:: python
+
+    for name, variable in f.items():
+        print(name, variable.shape)
+    print(f.get("pressure"))   # None
+
 Each :class:`~cefast.Variable` has:
 
 - :attr:`~cefast.Variable.name`, as written in the file;

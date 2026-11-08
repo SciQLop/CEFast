@@ -317,7 +317,7 @@ A subclass of :class:`ValueError`.
 
     py::class_<py_cef>(m, "CEF", R"(A loaded CEF file, returned by :func:`load`.
 
-Behaves like a read-only dictionary of :class:`Variable`, in file order::
+A read-only :class:`collections.abc.Mapping` of :class:`Variable`, in file order::
 
     f = cefast.load("file.cef")
     len(f), list(f), "B_mag" in f

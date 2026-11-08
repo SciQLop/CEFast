@@ -10,7 +10,7 @@ This page lists everything ``cefast`` offers. For explanations and examples, see
 .. autofunction:: load
 
 .. autoclass:: CEF
-    :members: keys, attributes
+    :members: keys, values, items, get, attributes
     :special-members: __getitem__
 
 .. autoclass:: Variable

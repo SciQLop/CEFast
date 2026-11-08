@@ -340,6 +340,19 @@ class TestMapping(unittest.TestCase):
     def test_dict_conversion(self):
         self.assertEqual(list(dict(self.f)), ["time_tags", "B_vec", "label"])
 
+    def test_keys_that_are_not_text_are_missing_like_in_a_dict(self):
+        for key in (None, 1, b"B_vec"):
+            self.assertNotIn(key, self.f)
+            self.assertIsNone(self.f.get(key))
+            self.assertEqual(self.f.get(key, 42), 42)
+            with self.assertRaises(KeyError):
+                self.f[key]
+
+    def test_missing_key_error_holds_the_key(self):
+        with self.assertRaises(KeyError) as caught:
+            self.f["missing"]
+        self.assertEqual(caught.exception.args, ("missing",))
+
     def test_still_read_only(self):
         with self.assertRaises(TypeError):
             self.f["x"] = None

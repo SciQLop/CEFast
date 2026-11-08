@@ -193,21 +193,27 @@ struct py_cef
 {
     std::shared_ptr<cefast::cef_file> file;
 
-    [[nodiscard]] py_variable getitem(const std::string& name) const
+    // Keys of any type, like a dict: a key that is not text is simply not there.
+    [[nodiscard]] std::optional<std::size_t> find(const py::handle& key) const
     {
+        if (!py::isinstance<py::str>(key))
+            return std::nullopt;
+        const auto name = key.cast<std::string>();
         for (std::size_t index = 0; index < file->variables.size(); ++index)
             if (file->variables[index].name == name)
-                return py_variable { file, index };
-        throw py::key_error(name);
+                return index;
+        return std::nullopt;
     }
 
-    [[nodiscard]] bool contains(const std::string& name) const
+    [[nodiscard]] py_variable getitem(const py::object& key) const
     {
-        for (const auto& var : file->variables)
-            if (var.name == name)
-                return true;
-        return false;
+        if (const auto index = find(key))
+            return py_variable { file, *index };
+        PyErr_SetObject(PyExc_KeyError, key.ptr());
+        throw py::error_already_set();
     }
+
+    [[nodiscard]] bool contains(const py::object& key) const { return find(key).has_value(); }
 
     [[nodiscard]] std::size_t len() const { return file->variables.size(); }
     [[nodiscard]] py::dict attributes() const { return attributes_of(file->globals); }

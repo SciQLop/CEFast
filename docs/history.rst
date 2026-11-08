@@ -2,6 +2,13 @@
 History
 =======
 
+0.2.1 (2026-11-08)
+==================
+
+- A key that is not text is missing, as in a :class:`dict`: ``None in f`` is false,
+  ``f.get(None)`` returns the default and ``f[None]`` raises :class:`KeyError`. They used to
+  raise :class:`TypeError`.
+
 0.2.0 (2026-11-08)
 ==================
 

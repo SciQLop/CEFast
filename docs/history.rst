@@ -2,8 +2,8 @@
 History
 =======
 
-Unreleased
-==========
+0.2.0 (2026-11-08)
+==================
 
 - ``print`` of a file shows a summary: name, record count, a table of the variables (type, shape,
   units, description) and the global attributes. ``print`` of a variable shows its type, shape

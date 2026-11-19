@@ -43,11 +43,11 @@ struct attribute
 
 using attributes = std::vector<attribute>;
 
-// One buffer per value type: INT is int32 (CEF's 4-byte integer), BYTE is unsigned (0-255),
-// ISO_TIME and ISO_TIME_RANGE share int64 (a range stores its start/stop pairs interleaved).
+// One buffer per value type: INT is int64 (CEF says 4 bytes, but CSA writes wider values such as
+// 20122350000), BYTE is unsigned (0-255), and INT, ISO_TIME and ISO_TIME_RANGE share int64 (a
+// range stores its start/stop pairs interleaved).
 using column = std::variant<cpp_utils::containers::no_init_vector<float>,
     cpp_utils::containers::no_init_vector<double>,
-    cpp_utils::containers::no_init_vector<std::int32_t>,
     cpp_utils::containers::no_init_vector<std::int64_t>,
     cpp_utils::containers::no_init_vector<std::uint8_t>, std::vector<std::string>>;
 

@@ -106,7 +106,7 @@ varies fastest.
 =================== ===================================================
 ``FLOAT``           ``float``
 ``DOUBLE``          ``double``
-``INT``             ``std::int32_t``
+``INT``             ``std::int64_t``
 ``BYTE``            ``std::uint8_t``
 ``ISO_TIME``        ``std::int64_t``, nanoseconds since 1970-01-01 UTC
 ``ISO_TIME_RANGE``  ``std::int64_t``, start and stop one after the other

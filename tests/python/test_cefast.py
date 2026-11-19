@@ -41,6 +41,17 @@ DATA_UNTIL = END_DATA
 END_DATA
 """
 
+WIDE_INT_FILE = b"""FILE_NAME = "wide.cef"
+FILE_FORMAT_VERSION = "CEF-2.0"
+START_VARIABLE = i
+  VALUE_TYPE = INT
+END_VARIABLE = i
+DATA_UNTIL = END_DATA
+20122350000
+-3000000000
+END_DATA
+"""
+
 
 class TestLoad(unittest.TestCase):
     def test_load_path_and_bytes_equal(self):
@@ -180,7 +191,7 @@ class TestVariables(unittest.TestCase):
             whi["Delta_Time__C1_CP_WHI_ELECTRON_DENSITY"].values.dtype, np.float32
         )
         self.assertEqual(
-            whi["Quality__C1_CP_WHI_ELECTRON_DENSITY"].values.dtype, np.int32
+            whi["Quality__C1_CP_WHI_ELECTRON_DENSITY"].values.dtype, np.int64
         )
         self.assertEqual(
             whi["time_tags__C1_CP_WHI_ELECTRON_DENSITY"].values.dtype,
@@ -190,13 +201,18 @@ class TestVariables(unittest.TestCase):
         self.assertEqual(edi.value_type, "DOUBLE")
         self.assertEqual(edi.values.dtype, np.float64)
         efw = cefast.load(corpus_file("C1_CP_EFW_L3_E"))
-        self.assertEqual(efw["E_bitmask__C1_CP_EFW_L3_E"].values.dtype, np.int32)
+        self.assertEqual(efw["E_bitmask__C1_CP_EFW_L3_E"].values.dtype, np.int64)
 
     def test_fill_time_is_nat(self):
         values = cefast.load(FILL_TIME_FILE)["t"].values
         self.assertEqual(values.shape, (2,))
         self.assertTrue(np.isnat(values[0]))
         self.assertEqual(values[1], np.datetime64("2000-01-01T00:00:00"))
+
+    def test_int_beyond_int32(self):
+        values = cefast.load(WIDE_INT_FILE)["i"].values
+        self.assertEqual(values.dtype, np.int64)
+        np.testing.assert_array_equal(values, [20122350000, -3000000000])
 
     def test_attributes_plain_values(self):
         self.assertEqual(self.whi.attributes["MISSION"], "Cluster")

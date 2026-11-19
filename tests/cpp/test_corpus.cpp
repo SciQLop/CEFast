@@ -179,7 +179,7 @@ TEST_CASE("corpus: WHI last record matches the file text")
     CHECK(strings_of(spectrum).back() == "A");
 
     const auto& quality = variable_named(file, "Quality__C1_CP_WHI_ELECTRON_DENSITY");
-    CHECK(values_of<std::int32_t>(quality).back() == 3);
+    CHECK(values_of<std::int64_t>(quality).back() == 3);
 }
 
 TEST_CASE("corpus: CODIF 3d_ions keeps its multidim C layout")
@@ -223,7 +223,7 @@ TEST_CASE("corpus: EFW L3 microsecond time tags keep their six digits")
     CHECK(values_of<float>(sigma).front() == 0.178f);
 
     const auto& bitmask = variable_named(file, "E_bitmask__C1_CP_EFW_L3_E");
-    CHECK(values_of<std::int32_t>(bitmask).front() == 4096);
+    CHECK(values_of<std::int64_t>(bitmask).front() == 4096);
 }
 
 TEST_CASE("corpus: sub-millisecond time tags are not rounded away")

@@ -377,7 +377,7 @@ TEST_CASE("records: a hint shorter than the file still stores every value", "[re
     // The hint sizes the column up front; a file with more records than that must grow it.
     const auto result
         = load(header("", three_ints) + "!RECORDS= 1\n1,2,3\n4,5,6\n7,8,9\nEND_DATA\n");
-    const auto& values = std::get<cpp_utils::containers::no_init_vector<std::int32_t>>(
+    const auto& values = std::get<cpp_utils::containers::no_init_vector<std::int64_t>>(
         result.file.variables[0].values);
     REQUIRE(values.size() == 9);
     CHECK(values[0] == 1);
@@ -385,10 +385,27 @@ TEST_CASE("records: a hint shorter than the file still stores every value", "[re
     CHECK(values[8] == 9);
 }
 
+TEST_CASE("records: INT values and fill beyond int32 are stored", "[records]")
+{
+    constexpr std::string_view wide_ints = R"(START_VARIABLE = i
+  VALUE_TYPE = INT
+  SIZES = 3
+  FILLVAL = 99999999999
+END_VARIABLE = i)";
+    const auto result = load(header("", wide_ints)
+        + "20122350000,-3000000000,1\n99999999999,2,3\nEND_DATA\n");
+    const auto& values = std::get<cpp_utils::containers::no_init_vector<std::int64_t>>(
+        result.file.variables[0].values);
+    REQUIRE(values.size() == 6);
+    CHECK(values[0] == 20122350000);
+    CHECK(values[1] == -3000000000);
+    CHECK(values[3] == 99999999999);
+}
+
 TEST_CASE("records: a hint longer than the file trims the column", "[records]")
 {
     const auto result = load(header("", three_ints) + "!RECORDS= 50\n1,2,3\n4,5,6\nEND_DATA\n");
-    const auto& values = std::get<cpp_utils::containers::no_init_vector<std::int32_t>>(
+    const auto& values = std::get<cpp_utils::containers::no_init_vector<std::int64_t>>(
         result.file.variables[0].values);
     REQUIRE(values.size() == 6);
     CHECK(values[5] == 6);

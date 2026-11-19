@@ -129,7 +129,7 @@ CEF ``VALUE_TYPE``  numpy dtype                         Notes
 =================== =================================== ===================================
 ``FLOAT``           ``float32``
 ``DOUBLE``          ``float64``
-``INT``             ``int32``
+``INT``             ``int64``                           CSA writes values beyond int32
 ``BYTE``            ``uint8``                           0 to 255
 ``ISO_TIME``        ``datetime64[ns]``                  UTC
 ``ISO_TIME_RANGE``  ``datetime64[ns]``                  last axis: start, stop

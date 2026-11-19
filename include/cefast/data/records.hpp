@@ -164,8 +164,8 @@ namespace detail
                 set_cursor<double>(state, 0);
                 break;
             case value_type::INT:
-                typed<std::int32_t>(*state.values).resize(total);
-                set_cursor<std::int32_t>(state, 0);
+                typed<std::int64_t>(*state.values).resize(total);
+                set_cursor<std::int64_t>(state, 0);
                 break;
             case value_type::BYTE:
                 typed<std::uint8_t>(*state.values).resize(total);
@@ -193,7 +193,7 @@ namespace detail
                 typed<double>(*state.values).resize(total);
                 break;
             case value_type::INT:
-                typed<std::int32_t>(*state.values).resize(total);
+                typed<std::int64_t>(*state.values).resize(total);
                 break;
             case value_type::BYTE:
                 typed<std::uint8_t>(*state.values).resize(total);
@@ -245,9 +245,7 @@ namespace detail
             case value_type::INT:
             {
                 std::int64_t value = 0;
-                state.has_fill = parse_int(state.fillval, value)
-                    && value >= std::numeric_limits<std::int32_t>::min()
-                    && value <= std::numeric_limits<std::int32_t>::max();
+                state.has_fill = parse_int(state.fillval, value);
                 state.fill_integer = value;
                 break;
             }
@@ -297,7 +295,7 @@ namespace detail
                 put(state, state.fill_number);
                 return true;
             case value_type::INT:
-                put(state, static_cast<std::int32_t>(state.fill_integer));
+                put(state, state.fill_integer);
                 return true;
             case value_type::BYTE:
                 put(state, static_cast<std::uint8_t>(state.fill_integer));
@@ -342,10 +340,9 @@ namespace detail
             case value_type::INT:
             {
                 std::int64_t value = 0;
-                if (!parse_int(token, value) || value < std::numeric_limits<std::int32_t>::min()
-                    || value > std::numeric_limits<std::int32_t>::max())
+                if (!parse_int(token, value))
                     return false;
-                put(state, static_cast<std::int32_t>(value));
+                put(state, value);
                 return true;
             }
             case value_type::BYTE:
@@ -395,7 +392,7 @@ namespace detail
                 set_cursor<double>(state, total);
                 break;
             case value_type::INT:
-                set_cursor<std::int32_t>(state, total);
+                set_cursor<std::int64_t>(state, total);
                 break;
             case value_type::BYTE:
                 set_cursor<std::uint8_t>(state, total);
@@ -720,17 +717,8 @@ namespace detail
                         [this](std::size_t& at, double& value) { return parse_float_at(at, value); },
                         count, ends_record, position, local_line, multi_line);
                 case value_type::INT:
-                    return fast_column(target, static_cast<std::int32_t>(target.fill_integer),
-                        [this](std::size_t& at, std::int32_t& value)
-                        {
-                            std::int64_t wide = 0;
-                            if (!parse_int_at(at, wide)
-                                || wide < std::numeric_limits<std::int32_t>::min()
-                                || wide > std::numeric_limits<std::int32_t>::max())
-                                return false;
-                            value = static_cast<std::int32_t>(wide);
-                            return true;
-                        },
+                    return fast_column(target, target.fill_integer,
+                        [this](std::size_t& at, std::int64_t& value) { return parse_int_at(at, value); },
                         count, ends_record, position, local_line, multi_line);
                 case value_type::BYTE:
                     return fast_column(target, static_cast<std::uint8_t>(target.fill_integer),

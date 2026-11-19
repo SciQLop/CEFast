@@ -77,7 +77,7 @@ TEST_CASE("values: INT accepts leading zero and plus", "[values]")
     column values = make_column(value_type::INT);
     REQUIRE(append_value(values, value_type::INT, "05", ""));
     REQUIRE(append_value(values, value_type::INT, "+7", ""));
-    const auto& ints = std::get<cpp_utils::containers::no_init_vector<std::int32_t>>(values);
+    const auto& ints = std::get<cpp_utils::containers::no_init_vector<std::int64_t>>(values);
     REQUIRE(ints.size() == 2);
     CHECK(ints[0] == 5);
     CHECK(ints[1] == 7);
@@ -110,10 +110,21 @@ TEST_CASE("values: INT rejects garbage", "[values]")
     CHECK_FALSE(append_value(values, value_type::INT, "5x", ""));
 }
 
-TEST_CASE("values: INT rejects values outside int32", "[values]")
+TEST_CASE("values: INT keeps values beyond int32", "[values]")
+{
+    // CSA's C3_CP_PEA_MOMENTS writes calibration versions such as 20122350000 as INT.
+    column values = make_column(value_type::INT);
+    REQUIRE(append_value(values, value_type::INT, "20122350000", ""));
+    REQUIRE(append_value(values, value_type::INT, "-3000000000", ""));
+    const auto& ints = std::get<cpp_utils::containers::no_init_vector<std::int64_t>>(values);
+    CHECK(ints[0] == 20122350000);
+    CHECK(ints[1] == -3000000000);
+}
+
+TEST_CASE("values: INT rejects values outside int64", "[values]")
 {
     column values = make_column(value_type::INT);
-    CHECK_FALSE(append_value(values, value_type::INT, "2147483648", ""));
+    CHECK_FALSE(append_value(values, value_type::INT, "9223372036854775808", ""));
 }
 
 TEST_CASE("values: BYTE accepts 0..255", "[values]")
@@ -201,7 +212,7 @@ TEST_CASE("values: NRV scalar keeps its single element", "[values]")
 {
     const auto result = parse(one_variable(value_type::INT, "  SIZES = 1\n", "7"));
     CHECK(result.file.variables[0].sizes == std::vector<std::size_t> { 1 });
-    CHECK(std::get<cpp_utils::containers::no_init_vector<std::int32_t>>(
+    CHECK(std::get<cpp_utils::containers::no_init_vector<std::int64_t>>(
               result.file.variables[0].values)
               .size()
         == 1);

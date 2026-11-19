@@ -140,7 +140,7 @@ namespace detail
         return true;
     }
 
-    // CEF writes signed samples, and INT already takes the '+' int32 spelling, so the floating
+    // CEF writes signed samples, and INT already takes the '+' spelling, so the floating
     // types must too: fast_float only accepts it when asked.
     constexpr fast_float::chars_format float_format
         = fast_float::chars_format::general | fast_float::chars_format::allow_leading_plus;
@@ -166,7 +166,7 @@ namespace detail
         case value_type::DOUBLE:
             return no_init_vector<double> { };
         case value_type::INT:
-            return no_init_vector<std::int32_t> { };
+            return no_init_vector<std::int64_t> { };
         case value_type::BYTE:
             return no_init_vector<std::uint8_t> { };
         case value_type::ISO_TIME:
@@ -205,11 +205,9 @@ namespace detail
         case value_type::INT:
         {
             std::int64_t value = 0;
-            if (!detail::parse_int(token, value) || value < std::numeric_limits<std::int32_t>::min()
-                || value > std::numeric_limits<std::int32_t>::max())
+            if (!detail::parse_int(token, value))
                 return false;
-            std::get<no_init_vector<std::int32_t>>(values).push_back(
-                static_cast<std::int32_t>(value));
+            std::get<no_init_vector<std::int64_t>>(values).push_back(value);
             return true;
         }
         case value_type::BYTE:
@@ -410,8 +408,8 @@ namespace detail
                 set_cursor<double>(state, 0);
                 break;
             case value_type::INT:
-                typed<std::int32_t>(*state.values).resize(total);
-                set_cursor<std::int32_t>(state, 0);
+                typed<std::int64_t>(*state.values).resize(total);
+                set_cursor<std::int64_t>(state, 0);
                 break;
             case value_type::BYTE:
                 typed<std::uint8_t>(*state.values).resize(total);
@@ -439,7 +437,7 @@ namespace detail
                 typed<double>(*state.values).resize(total);
                 break;
             case value_type::INT:
-                typed<std::int32_t>(*state.values).resize(total);
+                typed<std::int64_t>(*state.values).resize(total);
                 break;
             case value_type::BYTE:
                 typed<std::uint8_t>(*state.values).resize(total);
@@ -491,9 +489,7 @@ namespace detail
             case value_type::INT:
             {
                 std::int64_t value = 0;
-                state.has_fill = parse_int(state.fillval, value)
-                    && value >= std::numeric_limits<std::int32_t>::min()
-                    && value <= std::numeric_limits<std::int32_t>::max();
+                state.has_fill = parse_int(state.fillval, value);
                 state.fill_integer = value;
                 break;
             }
@@ -543,7 +539,7 @@ namespace detail
                     put(state, state.fill_number);
                     return true;
                 case value_type::INT:
-                    put(state, static_cast<std::int32_t>(state.fill_integer));
+                    put(state, state.fill_integer);
                     return true;
                 case value_type::BYTE:
                     put(state, static_cast<std::uint8_t>(state.fill_integer));
@@ -580,10 +576,9 @@ namespace detail
             case value_type::INT:
             {
                 std::int64_t value = 0;
-                if (!parse_int(token, value) || value < std::numeric_limits<std::int32_t>::min()
-                    || value > std::numeric_limits<std::int32_t>::max())
+                if (!parse_int(token, value))
                     return false;
-                put(state, static_cast<std::int32_t>(value));
+                put(state, value);
                 return true;
             }
             case value_type::BYTE:

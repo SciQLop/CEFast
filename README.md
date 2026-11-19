@@ -94,7 +94,7 @@ declared shape.
 | --- | --- |
 | FLOAT | float32 |
 | DOUBLE | float64 |
-| INT | int32 |
+| INT | int64 |
 | BYTE | uint8 |
 | CHAR | numpy unicode string, copied |
 | ISO_TIME | datetime64[ns] |

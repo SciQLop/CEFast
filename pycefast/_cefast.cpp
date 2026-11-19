@@ -146,7 +146,7 @@ template <typename Container>
         case cefast::value_type::DOUBLE:
             return view_of(std::get<no_init_vector<double>>(var.values), shape, owner);
         case cefast::value_type::INT:
-            return view_of(std::get<no_init_vector<std::int32_t>>(var.values), shape, owner);
+            return view_of(std::get<no_init_vector<std::int64_t>>(var.values), shape, owner);
         case cefast::value_type::BYTE:
             return view_of(std::get<no_init_vector<std::uint8_t>>(var.values), shape, owner);
         case cefast::value_type::ISO_TIME:
@@ -383,7 +383,7 @@ of 2 (start, stop).
 ==================  ======================================
 ``FLOAT``           ``float32``
 ``DOUBLE``          ``float64``
-``INT``             ``int32``
+``INT``             ``int64``
 ``BYTE``            ``uint8``
 ``ISO_TIME``        ``datetime64[ns]``
 ``ISO_TIME_RANGE``  ``datetime64[ns]``

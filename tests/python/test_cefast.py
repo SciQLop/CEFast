@@ -180,10 +180,10 @@ class TestVariables(unittest.TestCase):
         values = cefast.load(corpus_file("C3_CT_AUX_GRMB"))[
             "time_tags__C3_CT_AUX_GRMB"
         ].values
-        self.assertEqual(values.shape, (383, 2))
+        self.assertEqual(values.shape, (633, 2))
         self.assertEqual(values.dtype, np.dtype("datetime64[ns]"))
         self.assertEqual(values[0, 0], np.datetime64("2004-12-31T21:04:12"))
-        self.assertEqual(values[0, 1], np.datetime64("2005-01-01T03:00:00"))
+        self.assertEqual(values[0, 1], np.datetime64("2005-01-01T03:05:00"))
 
     def test_dtypes(self):
         whi = self.whi

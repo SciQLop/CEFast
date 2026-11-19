@@ -242,12 +242,12 @@ TEST_CASE("corpus: an ISO_TIME_RANGE variable keeps both ends")
     const auto& time = variable_named(file, "time_tags__C3_CT_AUX_GRMB");
     REQUIRE(time.type == cefast::value_type::ISO_TIME_RANGE);
     REQUIRE(time.is_nrv == false);
-    REQUIRE(time.records == 383);
+    REQUIRE(time.records == 633);
     const auto& values = values_of<std::int64_t>(time);
-    REQUIRE(values.size() == 383UL * 2);
-    // 2004-12-31T21:04:12Z/2005-01-01T03:00:00Z
+    REQUIRE(values.size() == 633UL * 2);
+    // 2004-12-31T21:04:12Z/2005-01-01T03:05:00Z
     CHECK(values[0] == 1'104'527'052'000'000'000);
-    CHECK(values[1] == 1'104'548'400'000'000'000);
+    CHECK(values[1] == 1'104'548'700'000'000'000);
 }
 
 TEST_CASE("corpus: a gzipped file loads exactly like its plain version")

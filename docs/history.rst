@@ -2,6 +2,13 @@
 History
 =======
 
+0.2.2 (2026-11-19)
+==================
+
+- ``INT`` values are read as 64-bit integers. CSA writes ``INT`` values that do not fit in
+  32 bits (``C3_CP_PEA_MOMENTS`` stores calibration versions like ``20122350000``), and one
+  such value made the whole file fail to load. ``INT`` arrays are now ``int64``, not ``int32``.
+
 0.2.1 (2026-11-08)
 ==================
 

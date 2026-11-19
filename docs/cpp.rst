@@ -16,7 +16,7 @@ Put this wrap file in your ``subprojects/`` directory, as ``subprojects/cefast.w
 
     [wrap-git]
     url = https://github.com/SciQLop/CEFast.git
-    revision = v0.2.1
+    revision = v0.2.2
     depth = 1
 
     [provide]

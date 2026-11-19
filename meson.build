@@ -2,7 +2,7 @@ project(
   'cefast',
   'cpp',
   meson_version : '>= 1.2.0',
-  version : '0.2.1',
+  version : '0.2.2',
   default_options : ['cpp_std=c++20', 'buildtype=release']
 )
 
